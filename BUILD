@@ -1,6 +1,7 @@
 cc_binary(
     name = "cpu_monitor",
     srcs = [
+        "app.cc",
         "args.cc",
         "main.cc",
     ],
