@@ -1,0 +1,4 @@
+module(
+    name = "cpu_monitor",
+    version = "0.1.0",
+)
