@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
@@ -16,6 +17,45 @@ enum class CommandAction {
   kPrint,
   kQuit,
   kInvalid,
+};
+
+volatile sig_atomic_t g_stop_requested = 0;
+
+void SignalHandler(int) { g_stop_requested = 1; }
+
+class SignalInstaller {
+ public:
+  SignalInstaller() = default;
+
+  bool Install() {
+    struct sigaction action {};
+    action.sa_handler = SignalHandler;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+
+    if (sigaction(SIGINT, &action, &old_int_) != 0) {
+      return false;
+    }
+    if (sigaction(SIGTERM, &action, &old_term_) != 0) {
+      sigaction(SIGINT, &old_int_, nullptr);
+      return false;
+    }
+
+    installed_ = true;
+    return true;
+  }
+
+  ~SignalInstaller() {
+    if (installed_) {
+      sigaction(SIGINT, &old_int_, nullptr);
+      sigaction(SIGTERM, &old_term_, nullptr);
+    }
+  }
+
+ private:
+  struct sigaction old_int_ {};
+  struct sigaction old_term_ {};
+  bool installed_ = false;
 };
 
 std::string Trim(std::string_view line) {
@@ -170,8 +210,16 @@ int CpuMonitorApp::Run(std::string* error_message) {
     return 1;
   }
 
+  SignalInstaller signals;
+  if (!signals.Install()) {
+    if (error_message != nullptr) {
+      *error_message = "Unable to install signal handlers.";
+    }
+    return 1;
+  }
+
   bool should_exit = false;
-  while (!should_exit) {
+  while (!should_exit && !g_stop_requested) {
     bool stdin_ready = false;
     const int wait_result = WaitForEvents(error_message, &stdin_ready);
     if (wait_result < 0) {
