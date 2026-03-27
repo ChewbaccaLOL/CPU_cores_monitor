@@ -44,7 +44,8 @@ class CpuMonitorApp {
   int Run(std::string* error_message);
   bool ReadProcStat(CpuTimes* destination, std::size_t destination_size,
                     std::string* error_message);
-  bool SampleLoads(std::string* error_message);
+  bool SampleLoads(std::vector<CpuTimes>* previous_times,
+                   std::string* error_message);
   bool EmitStdoutSample(std::string* error_message);
   bool EmitLogSample(std::string* error_message);
   bool WriteAll(int fd, const char* data, std::size_t size,
@@ -62,7 +63,8 @@ class CpuMonitorApp {
   std::size_t core_count_ = 0;
   ScopedFd proc_stat_fd_;
   ScopedFd log_fd_;
-  std::vector<CpuTimes> previous_times_;
+  std::vector<CpuTimes> previous_stdout_times_;
+  std::vector<CpuTimes> previous_log_times_;
   std::vector<CpuTimes> current_times_;
   std::vector<double> loads_;
   std::vector<char> proc_stat_buffer_;

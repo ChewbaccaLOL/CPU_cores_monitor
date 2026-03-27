@@ -116,7 +116,8 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   }
   core_count_ = static_cast<std::size_t>(detected_cores);
 
-  previous_times_.assign(core_count_, CpuTimes{});
+  previous_stdout_times_.assign(core_count_, CpuTimes{});
+  previous_log_times_.assign(core_count_, CpuTimes{});
   current_times_.assign(core_count_, CpuTimes{});
   loads_.assign(core_count_, 0.0);
   proc_stat_buffer_.assign((core_count_ + 2U) * 256U, '\0');
@@ -138,10 +139,11 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
     }
   }
 
-  if (!ReadProcStat(previous_times_.data(), previous_times_.size(),
+  if (!ReadProcStat(previous_stdout_times_.data(), previous_stdout_times_.size(),
                     error_message)) {
     return false;
   }
+  previous_log_times_ = previous_stdout_times_;
 
   if (config_.interval_seconds.has_value()) {
     const std::optional<timespec> now = MonotonicNow();
@@ -279,20 +281,29 @@ bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
   return true;
 }
 
-bool CpuMonitorApp::SampleLoads(std::string* error_message) {
+bool CpuMonitorApp::SampleLoads(std::vector<CpuTimes>* previous_times,
+                                std::string* error_message) {
+  if (previous_times == nullptr) {
+    if (error_message != nullptr) {
+      *error_message = "Missing previous CPU sample storage.";
+    }
+    return false;
+  }
+
   if (!ReadProcStat(current_times_.data(), current_times_.size(), error_message)) {
     return false;
   }
 
   for (std::size_t index = 0; index < core_count_; ++index) {
-    loads_[index] = ComputeLoadPercent(previous_times_[index], current_times_[index]);
+    loads_[index] =
+        ComputeLoadPercent((*previous_times)[index], current_times_[index]);
   }
-  previous_times_.swap(current_times_);
+  previous_times->swap(current_times_);
   return true;
 }
 
 bool CpuMonitorApp::EmitStdoutSample(std::string* error_message) {
-  if (!SampleLoads(error_message)) {
+  if (!SampleLoads(&previous_stdout_times_, error_message)) {
     return false;
   }
 
@@ -309,7 +320,7 @@ bool CpuMonitorApp::EmitLogSample(std::string* error_message) {
     return false;
   }
 
-  if (!SampleLoads(error_message)) {
+  if (!SampleLoads(&previous_log_times_, error_message)) {
     return false;
   }
 
