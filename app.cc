@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/select.h>
+#include <time.h>
 #include <unistd.h>
 
 namespace {
@@ -119,6 +121,7 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   loads_.assign(core_count_, 0.0);
   proc_stat_buffer_.assign((core_count_ + 2U) * 256U, '\0');
   stdout_line_.reserve(core_count_ * 24U + 1U);
+  log_line_.reserve(core_count_ * 24U + 32U);
 
   proc_stat_fd_.reset(open("/proc/stat", O_RDONLY | O_CLOEXEC));
   if (!proc_stat_fd_.valid()) {
@@ -126,9 +129,31 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
     return false;
   }
 
+  if (config_.output_path.has_value()) {
+    log_fd_.reset(open(config_.output_path->c_str(),
+                       O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644));
+    if (!log_fd_.valid()) {
+      *error_message = "Unable to open output file.";
+      return false;
+    }
+  }
+
   if (!ReadProcStat(previous_times_.data(), previous_times_.size(),
                     error_message)) {
     return false;
+  }
+
+  if (config_.interval_seconds.has_value()) {
+    const std::optional<timespec> now = MonotonicNow();
+    if (!now.has_value()) {
+      *error_message = "Unable to read monotonic clock.";
+      return false;
+    }
+    next_log_deadline_ = AddSeconds(*now, *config_.interval_seconds);
+    if (!next_log_deadline_.has_value()) {
+      *error_message = "Unable to calculate initial log deadline.";
+      return false;
+    }
   }
 
   state_ = AppState::kRun;
@@ -144,9 +169,64 @@ int CpuMonitorApp::Run(std::string* error_message) {
   }
 
   bool should_exit = false;
-  while (stdin_open_ && !should_exit) {
-    if (!HandleStdin(error_message, &should_exit)) {
+  while (!should_exit) {
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+
+    int nfds = 0;
+    if (stdin_open_) {
+      FD_SET(STDIN_FILENO, &read_fds);
+      nfds = STDIN_FILENO + 1;
+    }
+
+    const std::optional<timespec> timeout = NextTimeout();
+    const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
+
+    const int wait_result =
+        pselect(nfds, stdin_open_ ? &read_fds : nullptr, nullptr, nullptr,
+                timeout_ptr, nullptr);
+    if (wait_result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      if (error_message != nullptr) {
+        *error_message = "pselect() failed.";
+      }
       return 1;
+    }
+
+    if (stdin_open_ && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
+      if (!HandleStdin(error_message, &should_exit)) {
+        return 1;
+      }
+    }
+
+    if (next_log_deadline_.has_value()) {
+      const std::optional<timespec> now = MonotonicNow();
+      if (!now.has_value()) {
+        if (error_message != nullptr) {
+          *error_message = "Unable to read monotonic clock.";
+        }
+        return 1;
+      }
+
+      while (TimeReached(*now, *next_log_deadline_)) {
+        if (!EmitLogSample(error_message)) {
+          return 1;
+        }
+        next_log_deadline_ =
+            AddSeconds(*next_log_deadline_, *config_.interval_seconds);
+        if (!next_log_deadline_.has_value()) {
+          if (error_message != nullptr) {
+            *error_message = "Unable to calculate next log deadline.";
+          }
+          return 1;
+        }
+      }
+    }
+
+    if (!stdin_open_ && !next_log_deadline_.has_value()) {
+      break;
     }
   }
 
@@ -216,8 +296,25 @@ bool CpuMonitorApp::EmitStdoutSample(std::string* error_message) {
     return false;
   }
 
-  BuildOutputLine(&stdout_line_);
+  BuildOutputLine(&stdout_line_, false);
   return WriteAll(STDOUT_FILENO, stdout_line_.data(), stdout_line_.size(),
+                  error_message);
+}
+
+bool CpuMonitorApp::EmitLogSample(std::string* error_message) {
+  if (!log_fd_.valid()) {
+    if (error_message != nullptr) {
+      *error_message = "Log output requested without an open file.";
+    }
+    return false;
+  }
+
+  if (!SampleLoads(error_message)) {
+    return false;
+  }
+
+  BuildOutputLine(&log_line_, true);
+  return WriteAll(log_fd_.get(), log_line_.data(), log_line_.size(),
                   error_message);
 }
 
@@ -240,8 +337,24 @@ bool CpuMonitorApp::WriteAll(int fd, const char* data, std::size_t size,
   return true;
 }
 
-void CpuMonitorApp::BuildOutputLine(std::string* output) const {
+void CpuMonitorApp::BuildOutputLine(std::string* output,
+                                    bool include_timestamp) const {
   output->clear();
+
+  if (include_timestamp) {
+    const time_t now = time(nullptr);
+    struct tm now_tm {};
+    localtime_r(&now, &now_tm);
+
+    char timestamp[32];
+    const int timestamp_size = std::snprintf(
+        timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d ",
+        now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
+        now_tm.tm_hour, now_tm.tm_min, now_tm.tm_sec);
+    if (timestamp_size > 0) {
+      output->append(timestamp, static_cast<std::size_t>(timestamp_size));
+    }
+  }
 
   for (std::size_t index = 0; index < core_count_; ++index) {
     char entry[32];
@@ -321,4 +434,57 @@ bool CpuMonitorApp::HandleStdin(std::string* error_message, bool* should_exit) {
   }
 
   return true;
+}
+
+std::optional<timespec> CpuMonitorApp::NextTimeout() const {
+  if (!next_log_deadline_.has_value()) {
+    return std::nullopt;
+  }
+
+  const std::optional<timespec> now = MonotonicNow();
+  if (!now.has_value()) {
+    return std::nullopt;
+  }
+
+  if (TimeReached(*now, *next_log_deadline_)) {
+    return timespec{0, 0};
+  }
+
+  timespec delta {};
+  delta.tv_sec = next_log_deadline_->tv_sec - now->tv_sec;
+  delta.tv_nsec = next_log_deadline_->tv_nsec - now->tv_nsec;
+  if (delta.tv_nsec < 0) {
+    delta.tv_nsec += 1000000000L;
+    --delta.tv_sec;
+  }
+  if (delta.tv_sec < 0) {
+    delta.tv_sec = 0;
+    delta.tv_nsec = 0;
+  }
+  return delta;
+}
+
+std::optional<timespec> CpuMonitorApp::MonotonicNow() {
+  timespec now {};
+  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+    return std::nullopt;
+  }
+  return now;
+}
+
+std::optional<timespec> CpuMonitorApp::AddSeconds(const timespec& base,
+                                                  unsigned int seconds) {
+  timespec result = base;
+  result.tv_sec += static_cast<time_t>(seconds);
+  return result;
+}
+
+bool CpuMonitorApp::TimeReached(const timespec& now, const timespec& deadline) {
+  if (now.tv_sec > deadline.tv_sec) {
+    return true;
+  }
+  if (now.tv_sec < deadline.tv_sec) {
+    return false;
+  }
+  return now.tv_nsec >= deadline.tv_nsec;
 }

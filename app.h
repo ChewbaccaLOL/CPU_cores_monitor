@@ -3,8 +3,10 @@
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <time.h>
 #include <vector>
 
 #include "args.h"
@@ -44,23 +46,32 @@ class CpuMonitorApp {
                     std::string* error_message);
   bool SampleLoads(std::string* error_message);
   bool EmitStdoutSample(std::string* error_message);
+  bool EmitLogSample(std::string* error_message);
   bool WriteAll(int fd, const char* data, std::size_t size,
                 std::string* error_message) const;
-  void BuildOutputLine(std::string* output) const;
+  void BuildOutputLine(std::string* output, bool include_timestamp) const;
   bool HandleStdin(std::string* error_message, bool* should_exit);
+  std::optional<timespec> NextTimeout() const;
+  static std::optional<timespec> MonotonicNow();
+  static std::optional<timespec> AddSeconds(const timespec& base,
+                                            unsigned int seconds);
+  static bool TimeReached(const timespec& now, const timespec& deadline);
 
   AppState state_ = AppState::kInit;
   AppConfig config_;
   std::size_t core_count_ = 0;
   ScopedFd proc_stat_fd_;
+  ScopedFd log_fd_;
   std::vector<CpuTimes> previous_times_;
   std::vector<CpuTimes> current_times_;
   std::vector<double> loads_;
   std::vector<char> proc_stat_buffer_;
   std::string stdout_line_;
+  std::string log_line_;
   std::array<char, 256> stdin_buffer_{};
   std::size_t stdin_buffer_size_ = 0;
   bool stdin_open_ = true;
+  std::optional<timespec> next_log_deadline_;
 };
 
 #endif  // APP_H_
