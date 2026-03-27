@@ -85,6 +85,17 @@ CommandAction ParseCommand(std::string_view line) {
   return CommandAction::kInvalid;
 }
 
+void PrintStartupHint() {
+  if (isatty(STDIN_FILENO) == 0 || isatty(STDOUT_FILENO) == 0) {
+    return;
+  }
+
+  static constexpr char kHint[] =
+      "CPU monitor is running. Press Enter or type 'print' to show per-core "
+      "load, or type 'quit' to exit.\n";
+  std::fputs(kHint, stdout);
+}
+
 }  // namespace
 
 ScopedFd::ScopedFd(int fd) : fd_(fd) {}
@@ -217,6 +228,8 @@ int CpuMonitorApp::Run(std::string* error_message) {
     }
     return 1;
   }
+
+  PrintStartupHint();
 
   bool should_exit = false;
   while (!should_exit && !g_stop_requested) {
