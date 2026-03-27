@@ -60,7 +60,7 @@ class SignalInstaller {
   bool installed_ = false;
 };
 
-std::string Trim(std::string_view line) {
+std::string_view Trim(std::string_view line) {
   std::size_t start = 0;
   while (start < line.size() &&
          std::isspace(static_cast<unsigned char>(line[start])) != 0) {
@@ -73,11 +73,11 @@ std::string Trim(std::string_view line) {
     --end;
   }
 
-  return std::string(line.substr(start, end - start));
+  return line.substr(start, end - start);
 }
 
 CommandAction ParseCommand(std::string_view line) {
-  const std::string trimmed = Trim(line);
+  const std::string_view trimmed = Trim(line);
   if (trimmed.empty() || trimmed == "print") {
     return CommandAction::kPrint;
   }
