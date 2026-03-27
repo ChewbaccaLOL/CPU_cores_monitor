@@ -2,6 +2,8 @@
 
 Linux-targeted C++17 command-line application that reports per-core CPU load on request and can optionally append periodic samples to a file.
 
+Design decisions, tradeoffs, and requirement interpretations are documented in [DECISIONS.md](DECISIONS.md).
+
 ## Build
 
 ```sh
