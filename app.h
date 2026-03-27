@@ -42,10 +42,12 @@ class CpuMonitorApp {
  private:
   bool Initialize(const AppConfig& config, std::string* error_message);
   int Run(std::string* error_message);
+  int WaitForEvents(std::string* error_message, bool* stdin_ready) const;
+  bool HandleScheduledLogging(std::string* error_message);
   bool ReadProcStat(CpuTimes* destination, std::size_t destination_size,
                     std::string* error_message);
-  bool SampleLoads(std::vector<CpuTimes>* previous_times,
-                   std::string* error_message);
+  bool SampleLoadsUsingBaseline(std::vector<CpuTimes>* previous_times,
+                                std::string* error_message);
   bool EmitStdoutSample(std::string* error_message);
   bool EmitLogSample(std::string* error_message);
   bool WriteAll(int fd, const char* data, std::size_t size,

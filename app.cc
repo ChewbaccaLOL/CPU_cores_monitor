@@ -172,59 +172,23 @@ int CpuMonitorApp::Run(std::string* error_message) {
 
   bool should_exit = false;
   while (!should_exit) {
-    fd_set read_fds;
-    FD_ZERO(&read_fds);
-
-    int nfds = 0;
-    if (stdin_open_) {
-      FD_SET(STDIN_FILENO, &read_fds);
-      nfds = STDIN_FILENO + 1;
-    }
-
-    const std::optional<timespec> timeout = NextTimeout();
-    const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
-
-    const int wait_result =
-        pselect(nfds, stdin_open_ ? &read_fds : nullptr, nullptr, nullptr,
-                timeout_ptr, nullptr);
+    bool stdin_ready = false;
+    const int wait_result = WaitForEvents(error_message, &stdin_ready);
     if (wait_result < 0) {
-      if (errno == EINTR) {
-        continue;
-      }
-      if (error_message != nullptr) {
-        *error_message = "pselect() failed.";
-      }
       return 1;
     }
+    if (wait_result == 0) {
+      continue;
+    }
 
-    if (stdin_open_ && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds)) {
+    if (stdin_ready) {
       if (!HandleStdin(error_message, &should_exit)) {
         return 1;
       }
     }
 
-    if (next_log_deadline_.has_value()) {
-      const std::optional<timespec> now = MonotonicNow();
-      if (!now.has_value()) {
-        if (error_message != nullptr) {
-          *error_message = "Unable to read monotonic clock.";
-        }
-        return 1;
-      }
-
-      while (TimeReached(*now, *next_log_deadline_)) {
-        if (!EmitLogSample(error_message)) {
-          return 1;
-        }
-        next_log_deadline_ =
-            AddSeconds(*next_log_deadline_, *config_.interval_seconds);
-        if (!next_log_deadline_.has_value()) {
-          if (error_message != nullptr) {
-            *error_message = "Unable to calculate next log deadline.";
-          }
-          return 1;
-        }
-      }
+    if (!HandleScheduledLogging(error_message)) {
+      return 1;
     }
 
     if (!stdin_open_ && !next_log_deadline_.has_value()) {
@@ -233,6 +197,77 @@ int CpuMonitorApp::Run(std::string* error_message) {
   }
 
   return 0;
+}
+
+int CpuMonitorApp::WaitForEvents(std::string* error_message,
+                                 bool* stdin_ready) const {
+  if (stdin_ready == nullptr) {
+    if (error_message != nullptr) {
+      *error_message = "Missing stdin readiness flag.";
+    }
+    return -1;
+  }
+
+  *stdin_ready = false;
+
+  fd_set read_fds;
+  FD_ZERO(&read_fds);
+
+  int nfds = 0;
+  if (stdin_open_) {
+    FD_SET(STDIN_FILENO, &read_fds);
+    nfds = STDIN_FILENO + 1;
+  }
+
+  const std::optional<timespec> timeout = NextTimeout();
+  const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
+
+  const int wait_result =
+      pselect(nfds, stdin_open_ ? &read_fds : nullptr, nullptr, nullptr,
+              timeout_ptr, nullptr);
+  if (wait_result < 0) {
+    if (errno == EINTR) {
+      return 0;
+    }
+    if (error_message != nullptr) {
+      *error_message = "pselect() failed.";
+    }
+    return -1;
+  }
+
+  *stdin_ready =
+      stdin_open_ && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds);
+  return wait_result;
+}
+
+bool CpuMonitorApp::HandleScheduledLogging(std::string* error_message) {
+  if (!next_log_deadline_.has_value()) {
+    return true;
+  }
+
+  const std::optional<timespec> now = MonotonicNow();
+  if (!now.has_value()) {
+    if (error_message != nullptr) {
+      *error_message = "Unable to read monotonic clock.";
+    }
+    return false;
+  }
+
+  while (TimeReached(*now, *next_log_deadline_)) {
+    if (!EmitLogSample(error_message)) {
+      return false;
+    }
+    next_log_deadline_ =
+        AddSeconds(*next_log_deadline_, *config_.interval_seconds);
+    if (!next_log_deadline_.has_value()) {
+      if (error_message != nullptr) {
+        *error_message = "Unable to calculate next log deadline.";
+      }
+      return false;
+    }
+  }
+
+  return true;
 }
 
 bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
@@ -281,8 +316,8 @@ bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
   return true;
 }
 
-bool CpuMonitorApp::SampleLoads(std::vector<CpuTimes>* previous_times,
-                                std::string* error_message) {
+bool CpuMonitorApp::SampleLoadsUsingBaseline(
+    std::vector<CpuTimes>* previous_times, std::string* error_message) {
   if (previous_times == nullptr) {
     if (error_message != nullptr) {
       *error_message = "Missing previous CPU sample storage.";
@@ -303,7 +338,7 @@ bool CpuMonitorApp::SampleLoads(std::vector<CpuTimes>* previous_times,
 }
 
 bool CpuMonitorApp::EmitStdoutSample(std::string* error_message) {
-  if (!SampleLoads(&previous_stdout_times_, error_message)) {
+  if (!SampleLoadsUsingBaseline(&previous_stdout_times_, error_message)) {
     return false;
   }
 
@@ -320,7 +355,7 @@ bool CpuMonitorApp::EmitLogSample(std::string* error_message) {
     return false;
   }
 
-  if (!SampleLoads(&previous_log_times_, error_message)) {
+  if (!SampleLoadsUsingBaseline(&previous_log_times_, error_message)) {
     return false;
   }
 
