@@ -86,5 +86,8 @@ const char* UsageMessage() {
   return "Usage: cpu_monitor [--interval-sec N --output FILE]\n"
          "  --interval-sec N  Append CPU load samples every N seconds.\n"
          "  --output FILE     File used for periodic sample logging.\n"
-         "  --help            Show this help message.\n";
+         "  --help            Show this help message.\n"
+         "Commands during Run state:\n"
+         "  <Enter> or print  Print current per-core CPU load.\n"
+         "  quit              Exit the application.\n";
 }

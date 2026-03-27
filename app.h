@@ -1,8 +1,10 @@
 #ifndef APP_H_
 #define APP_H_
 
+#include <array>
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "args.h"
@@ -40,6 +42,12 @@ class CpuMonitorApp {
   int Run(std::string* error_message);
   bool ReadProcStat(CpuTimes* destination, std::size_t destination_size,
                     std::string* error_message);
+  bool SampleLoads(std::string* error_message);
+  bool EmitStdoutSample(std::string* error_message);
+  bool WriteAll(int fd, const char* data, std::size_t size,
+                std::string* error_message) const;
+  void BuildOutputLine(std::string* output) const;
+  bool HandleStdin(std::string* error_message, bool* should_exit);
 
   AppState state_ = AppState::kInit;
   AppConfig config_;
@@ -49,6 +57,10 @@ class CpuMonitorApp {
   std::vector<CpuTimes> current_times_;
   std::vector<double> loads_;
   std::vector<char> proc_stat_buffer_;
+  std::string stdout_line_;
+  std::array<char, 256> stdin_buffer_{};
+  std::size_t stdin_buffer_size_ = 0;
+  bool stdin_open_ = true;
 };
 
 #endif  // APP_H_
