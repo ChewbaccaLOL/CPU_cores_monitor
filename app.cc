@@ -238,9 +238,6 @@ int CpuMonitorApp::Run(std::string* error_message) {
     if (wait_result < 0) {
       return 1;
     }
-    if (wait_result == 0) {
-      continue;
-    }
 
     if (stdin_ready) {
       if (!HandleStdin(error_message, &should_exit)) {
