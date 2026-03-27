@@ -11,6 +11,8 @@
 #include <time.h>
 #include <unistd.h>
 
+// ----- File-local helpers -------------------------------------------------
+
 namespace {
 
 enum class CommandAction {
@@ -98,6 +100,8 @@ void PrintStartupHint() {
 
 }  // namespace
 
+// ----- Scoped file-descriptor ownership -----------------------------------
+
 ScopedFd::ScopedFd(int fd) : fd_(fd) {}
 
 ScopedFd::ScopedFd(ScopedFd&& other) noexcept : fd_(other.fd_) {
@@ -125,6 +129,8 @@ void ScopedFd::reset(int fd) {
   }
   fd_ = fd;
 }
+
+// ----- CpuMonitorApp lifecycle --------------------------------------------
 
 int CpuMonitorApp::Main(int argc, char* argv[]) {
   const ParseResult parse_result = ParseArguments(argc, argv);
@@ -257,6 +263,8 @@ int CpuMonitorApp::Run(std::string* error_message) {
   return 0;
 }
 
+// ----- Event loop ----------------------------------------------------------
+
 int CpuMonitorApp::WaitForEvents(std::string* error_message,
                                  bool* stdin_ready) const {
   if (stdin_ready == nullptr) {
@@ -280,6 +288,7 @@ int CpuMonitorApp::WaitForEvents(std::string* error_message,
   const std::optional<timespec> timeout = NextTimeout();
   const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
 
+  // Wait for either interactive stdin input or the next scheduled log deadline.
   const int wait_result =
       pselect(nfds, stdin_open_ ? &read_fds : nullptr, nullptr, nullptr,
               timeout_ptr, nullptr);
@@ -311,6 +320,7 @@ bool CpuMonitorApp::HandleScheduledLogging(std::string* error_message) {
     return false;
   }
 
+  // Catch up missed logging deadlines without drifting the periodic schedule.
   while (TimeReached(*now, *next_log_deadline_)) {
     if (!EmitLogSample(error_message)) {
       return false;
@@ -327,6 +337,8 @@ bool CpuMonitorApp::HandleScheduledLogging(std::string* error_message) {
 
   return true;
 }
+
+// ----- Sampling and output -------------------------------------------------
 
 bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
                                  std::size_t destination_size,
@@ -473,6 +485,8 @@ void CpuMonitorApp::BuildOutputLine(std::string* output,
   output->push_back('\n');
 }
 
+// ----- Input handling ------------------------------------------------------
+
 bool CpuMonitorApp::HandleStdin(std::string* error_message, bool* should_exit) {
   while (true) {
     if (stdin_buffer_size_ == stdin_buffer_.size()) {
@@ -540,6 +554,8 @@ bool CpuMonitorApp::HandleStdin(std::string* error_message, bool* should_exit) {
   return true;
 }
 
+// ----- Timing helpers ------------------------------------------------------
+
 std::optional<timespec> CpuMonitorApp::NextTimeout() const {
   if (!next_log_deadline_.has_value()) {
     return std::nullopt;
@@ -554,6 +570,8 @@ std::optional<timespec> CpuMonitorApp::NextTimeout() const {
     return timespec{0, 0};
   }
 
+  // pselect() expects a relative timeout, so convert the absolute deadline
+  // into the remaining interval from "now".
   timespec delta {};
   delta.tv_sec = next_log_deadline_->tv_sec - now->tv_sec;
   delta.tv_nsec = next_log_deadline_->tv_nsec - now->tv_nsec;

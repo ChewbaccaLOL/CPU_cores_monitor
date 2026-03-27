@@ -80,6 +80,8 @@ bool ParseProcStatBuffer(const char* buffer, std::size_t length,
       line_end = end;
     }
 
+    // Only per-core lines are needed for this task; the aggregate cpu line and
+    // the rest of /proc/stat are intentionally ignored.
     if ((line_end - cursor) > 3 && cursor[0] == 'c' && cursor[1] == 'p' &&
         cursor[2] == 'u' && cursor[3] >= '0' && cursor[3] <= '9') {
       errno = 0;
