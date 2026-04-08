@@ -34,6 +34,45 @@ TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
   EXPECT_EQ(stdout_output, std::string(UsageMessage()));
 }
 
+TEST(CpuMonitorAppMainTest, ParseFailurePrintsErrorAndUsageToStderr) {
+  MockCpuMonitorApp app;
+  char program[] = "cpu_monitor";
+  char invalid_flag[] = "--ummm";
+  char* argv[] = {program, invalid_flag};
+
+  EXPECT_CALL(app, Initialize(_, _)).Times(0);
+  EXPECT_CALL(app, Run(_)).Times(0);
+
+  testing::internal::CaptureStderr();
+  const int exit_code = app.Main(2, argv);
+  const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+  EXPECT_EQ(exit_code, 1);
+  EXPECT_THAT(stderr_output, HasSubstr("Unknown argument: --ummm"));
+  EXPECT_THAT(stderr_output, HasSubstr(UsageMessage()));
+}
+
+TEST(CpuMonitorAppMainTest, PartialLoggingFlagsPrintErrorAndUsageToStderr) {
+  MockCpuMonitorApp app;
+  char program[] = "cpu_monitor";
+  char interval_flag[] = "--interval-sec";
+  char interval_value[] = "5";
+  char* argv[] = {program, interval_flag, interval_value};
+
+  EXPECT_CALL(app, Initialize(_, _)).Times(0);
+  EXPECT_CALL(app, Run(_)).Times(0);
+
+  testing::internal::CaptureStderr();
+  const int exit_code = app.Main(3, argv);
+  const std::string stderr_output = testing::internal::GetCapturedStderr();
+
+  EXPECT_EQ(exit_code, 1);
+  EXPECT_THAT(stderr_output,
+              HasSubstr("Both --interval-sec and --output must be provided "
+                        "together."));
+  EXPECT_THAT(stderr_output, HasSubstr(UsageMessage()));
+}
+
 TEST(CpuMonitorAppMainTest, ValidArgsInitializeAndRun) {
   MockCpuMonitorApp app;
   char program[] = "cpu_monitor";
