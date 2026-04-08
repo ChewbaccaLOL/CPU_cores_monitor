@@ -26,6 +26,32 @@ bazel test //:cpu_reader_test
 bazel test //:app_test
 ```
 
+## Coverage
+
+Generate an LCOV coverage report for the full test suite:
+
+```sh
+bazel coverage //... --combined_report=lcov
+```
+
+The combined LCOV report is written to:
+
+```sh
+bazel-out/_coverage/_coverage_report.dat
+```
+
+If `genhtml` is installed, you can turn that LCOV file into a browsable HTML report:
+
+```sh
+genhtml -o coverage-html bazel-out/_coverage/_coverage_report.dat
+```
+
+Then open:
+
+```sh
+coverage-html/index.html
+```
+
 ## Run
 
 Interactive mode:
