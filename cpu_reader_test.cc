@@ -58,6 +58,58 @@ TEST(ParseProcStatBufferTest, RejectsCoreIndexOutsideCapacity) {
   EXPECT_FALSE(ok);
 }
 
+TEST(ParseProcStatBufferTest, RejectsNullBuffer) {
+  CpuTimes per_core[2];
+  std::size_t parsed_core_count = 0;
+
+  const bool ok =
+      ParseProcStatBuffer(nullptr, 0, per_core, std::size(per_core),
+                          &parsed_core_count);
+
+  EXPECT_FALSE(ok);
+}
+
+TEST(ParseProcStatBufferTest, RejectsCoreLineWithMissingCounters) {
+  constexpr char kProcStat[] = "cpu0 10 1 2 30 4 5 6\n";
+
+  CpuTimes per_core[2];
+  std::size_t parsed_core_count = 0;
+
+  const bool ok =
+      ParseProcStatBuffer(kProcStat, sizeof(kProcStat) - 1, per_core,
+                          std::size(per_core), &parsed_core_count);
+
+  EXPECT_FALSE(ok);
+}
+
+TEST(ParseProcStatBufferTest, RejectsCoreLineWithNonNumericCounter) {
+  constexpr char kProcStat[] = "cpu0 10 1 2 idle 4 5 6 7\n";
+
+  CpuTimes per_core[2];
+  std::size_t parsed_core_count = 0;
+
+  const bool ok =
+      ParseProcStatBuffer(kProcStat, sizeof(kProcStat) - 1, per_core,
+                          std::size(per_core), &parsed_core_count);
+
+  EXPECT_FALSE(ok);
+}
+
+TEST(ParseProcStatBufferTest, ParsesFinalLineWithoutTrailingNewline) {
+  constexpr char kProcStat[] = "cpu0 10 1 2 30 4 5 6 7";
+
+  CpuTimes per_core[2];
+  std::size_t parsed_core_count = 0;
+
+  const bool ok =
+      ParseProcStatBuffer(kProcStat, sizeof(kProcStat) - 1, per_core,
+                          std::size(per_core), &parsed_core_count);
+
+  ASSERT_TRUE(ok);
+  ASSERT_EQ(parsed_core_count, 1U);
+  EXPECT_EQ(per_core[0].steal, 7U);
+}
+
 TEST(ComputeLoadPercentTest, ComputesActiveTimeRatio) {
   CpuTimes previous;
   previous.user = 10;
@@ -86,6 +138,22 @@ TEST(ComputeLoadPercentTest, ReturnsZeroForNonMonotonicSamples) {
   current.system = 10;
   current.idle = 70;
   current.iowait = 20;
+
+  EXPECT_DOUBLE_EQ(ComputeLoadPercent(previous, current), 0.0);
+}
+
+TEST(ComputeLoadPercentTest, ReturnsZeroWhenTotalsDoNotAdvance) {
+  CpuTimes previous;
+  previous.user = 10;
+  previous.system = 10;
+  previous.idle = 80;
+  previous.iowait = 10;
+
+  CpuTimes current;
+  current.user = 10;
+  current.system = 10;
+  current.idle = 80;
+  current.iowait = 10;
 
   EXPECT_DOUBLE_EQ(ComputeLoadPercent(previous, current), 0.0);
 }
