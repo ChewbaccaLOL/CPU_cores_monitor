@@ -43,6 +43,16 @@ cc_test(
 )
 
 cc_test(
+    name = "app_test",
+    srcs = ["app_test.cc"],
+    copts = COMMON_COPTS,
+    deps = [
+        ":cpu_monitor_lib",
+        "@googletest//:gmock_main",
+    ],
+)
+
+cc_test(
     name = "cpu_reader_test",
     srcs = ["cpu_reader_test.cc"],
     copts = COMMON_COPTS,
