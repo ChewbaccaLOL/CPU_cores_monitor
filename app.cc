@@ -21,6 +21,9 @@ enum class CommandAction {
   kInvalid,
 };
 
+constexpr std::size_t kProcStatBytesPerCpuLine = 512U;
+constexpr std::size_t kProcStatExtraSlackBytes = 4096U;
+
 volatile sig_atomic_t g_stop_requested = 0;
 
 void SignalHandler(int) { g_stop_requested = 1; }
@@ -177,7 +180,9 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   previous_log_times_.assign(core_count_, CpuTimes{});
   current_times_.assign(core_count_, CpuTimes{});
   loads_.assign(core_count_, 0.0);
-  proc_stat_buffer_.assign((core_count_ + 2U) * 256U, '\0');
+  proc_stat_buffer_.assign(core_count_ * kProcStatBytesPerCpuLine +
+                               kProcStatExtraSlackBytes,
+                           '\0');
   stdout_line_.reserve(core_count_ * 24U + 1U);
   log_line_.reserve(core_count_ * 24U + 32U);
 
@@ -366,11 +371,6 @@ bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
     total_read += static_cast<std::size_t>(bytes_read);
   }
 
-  if (total_read == proc_stat_buffer_.size()) {
-    *error_message = "/proc/stat buffer was too small.";
-    return false;
-  }
-
   std::size_t parsed_core_count = 0;
   if (!ParseProcStatBuffer(proc_stat_buffer_.data(), total_read, destination,
                            destination_size, &parsed_core_count)) {
@@ -379,6 +379,11 @@ bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
   }
 
   if (parsed_core_count != destination_size) {
+    if (total_read == proc_stat_buffer_.size()) {
+      *error_message =
+          "/proc/stat buffer was too small to capture all per-core lines.";
+      return false;
+    }
     *error_message = "Parsed core count does not match detected core count.";
     return false;
   }

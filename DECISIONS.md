@@ -79,7 +79,7 @@ Choice: pre-size a reusable raw buffer based on the detected core count.
 
 Reason: this keeps runtime memory behavior predictable and avoids growing buffers during monitoring.
 
-Impact / limitation: this is a practical estimate, not a fully dynamic reader. It is a tradeoff between robustness and the task's preference to avoid runtime allocations.
+Impact / limitation: this is a practical estimate, not a fully dynamic reader. The reader only needs the leading per-core `cpuN` lines, so it tolerates truncation in later ignored sections such as `intr`, but still fails if the buffer is too small to capture all detected cores.
 
 ### 12. Output format
 Choice: print one line per sample as `core0=12.34% core1=8.91% ...`, and prefix file samples with a timestamp.
