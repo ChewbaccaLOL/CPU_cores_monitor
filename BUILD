@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 COMMON_COPTS = [
     "-std=c++17",
@@ -30,4 +30,24 @@ cc_binary(
     copts = COMMON_COPTS,
     deps = [":cpu_monitor_lib"],
     visibility = ["//visibility:public"],
+)
+
+cc_test(
+    name = "args_test",
+    srcs = ["args_test.cc"],
+    copts = COMMON_COPTS,
+    deps = [
+        ":cpu_monitor_lib",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "cpu_reader_test",
+    srcs = ["cpu_reader_test.cc"],
+    copts = COMMON_COPTS,
+    deps = [
+        ":cpu_monitor_lib",
+        "@googletest//:gtest_main",
+    ],
 )

@@ -37,11 +37,14 @@ class ScopedFd {
 
 class CpuMonitorApp {
  public:
+  virtual ~CpuMonitorApp() = default;
   int Main(int argc, char* argv[]);
 
+ protected:
+  virtual bool Initialize(const AppConfig& config, std::string* error_message);
+  virtual int Run(std::string* error_message);
+
  private:
-  bool Initialize(const AppConfig& config, std::string* error_message);
-  int Run(std::string* error_message);
   int WaitForEvents(std::string* error_message, bool* stdin_ready) const;
   bool HandleScheduledLogging(std::string* error_message);
   bool ReadProcStat(CpuTimes* destination, std::size_t destination_size,
