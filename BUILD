@@ -48,7 +48,7 @@ cc_test(
     copts = COMMON_COPTS,
     deps = [
         ":cpu_monitor_lib",
-        "@googletest//:gmock_main",
+        "@googletest//:gtest_main",
     ],
 )
 

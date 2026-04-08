@@ -10,6 +10,22 @@ Design decisions, tradeoffs, and requirement interpretations are documented in [
 bazel build //:cpu_monitor
 ```
 
+## Test
+
+Run the full test suite:
+
+```sh
+bazel test //...
+```
+
+Run individual test targets:
+
+```sh
+bazel test //:args_test
+bazel test //:cpu_reader_test
+bazel test //:app_test
+```
+
 ## Run
 
 Interactive mode:
