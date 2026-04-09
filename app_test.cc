@@ -1,15 +1,72 @@
 #include "app.h"
 
+#include <cerrno>
+#include <cstdio>
+#include <fcntl.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <string>
+#include <unistd.h>
 
 namespace {
 
 using ::testing::_;
 using ::testing::HasSubstr;
 using ::testing::Return;
+
+class TempFile {
+ public:
+  TempFile() {
+    char path_template[] = "/tmp/cpu_monitor_test_XXXXXX";
+    const int fd = mkstemp(path_template);
+    if (fd < 0) {
+      return;
+    }
+
+    path_ = path_template;
+    close(fd);
+  }
+
+  ~TempFile() {
+    if (!path_.empty()) {
+      std::remove(path_.c_str());
+    }
+  }
+
+  bool valid() const { return !path_.empty(); }
+
+  bool WriteContents(const std::string& contents) const {
+    const int fd = open(path_.c_str(), O_WRONLY | O_TRUNC);
+    if (fd < 0) {
+      return false;
+    }
+
+    std::size_t total_written = 0;
+    while (total_written < contents.size()) {
+      const ssize_t bytes_written =
+          write(fd, contents.data() + total_written, contents.size() - total_written);
+      if (bytes_written < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
+        close(fd);
+        return false;
+      }
+      total_written += static_cast<std::size_t>(bytes_written);
+    }
+
+    close(fd);
+    return true;
+  }
+
+  int OpenReadOnly() const { return open(path_.c_str(), O_RDONLY | O_CLOEXEC); }
+
+  const char* path() const { return path_.c_str(); }
+
+ private:
+  std::string path_;
+};
 
 class MockCpuMonitorApp : public CpuMonitorApp {
  public:
@@ -199,6 +256,53 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenOutputFileOpenFails) {
 
   EXPECT_FALSE(app.Initialize(config, &error_message));
   EXPECT_EQ(error_message, "Unable to open output file.");
+}
+
+TEST(CpuMonitorAppInitializeTest, SucceedsWithValidProcStatData) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"
+      "cpu1 20 3 4 40 5 6 7 8\n"));
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_TRUE(app.Initialize(AppConfig{}, &error_message));
+  EXPECT_TRUE(error_message.empty());
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenMonotonicClockReadFails) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"
+      "cpu1 20 3 4 40 5 6 7 8\n"));
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+  AppConfig config;
+  config.interval_seconds = 5;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow())
+      .WillOnce(Return(std::optional<timespec>{}));
+
+  EXPECT_FALSE(app.Initialize(config, &error_message));
+  EXPECT_EQ(error_message, "Unable to read monotonic clock.");
 }
 
 }  // namespace
