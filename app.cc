@@ -101,6 +101,32 @@ void PrintStartupHint() {
   std::fputs(kHint, stdout);
 }
 
+class PosixAppRuntime : public AppRuntime {
+ public:
+  long GetOnlineCpuCount() const override {
+    return sysconf(_SC_NPROCESSORS_ONLN);
+  }
+
+  int OpenProcStat() const override { return open("/proc/stat", O_RDONLY | O_CLOEXEC); }
+
+  int OpenOutputFile(const char* path) const override {
+    return open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+  }
+
+  std::optional<timespec> GetMonotonicNow() const override {
+    timespec now {};
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+      return std::nullopt;
+    }
+    return now;
+  }
+};
+
+AppRuntime& DefaultAppRuntime() {
+  static PosixAppRuntime runtime;
+  return runtime;
+}
+
 }  // namespace
 
 // ----- Scoped file-descriptor ownership -----------------------------------
@@ -134,6 +160,10 @@ void ScopedFd::reset(int fd) {
 }
 
 // ----- CpuMonitorApp lifecycle --------------------------------------------
+
+CpuMonitorApp::CpuMonitorApp() : CpuMonitorApp(DefaultAppRuntime()) {}
+
+CpuMonitorApp::CpuMonitorApp(AppRuntime& runtime) : runtime_(&runtime) {}
 
 int CpuMonitorApp::Main(int argc, char* argv[]) {
   const ParseResult parse_result = ParseArguments(argc, argv);
@@ -169,7 +199,7 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   config_ = config;
   state_ = AppState::kInit;
 
-  const long detected_cores = sysconf(_SC_NPROCESSORS_ONLN);
+  const long detected_cores = runtime_->GetOnlineCpuCount();
   if (detected_cores <= 0) {
     *error_message = "Unable to detect online CPU cores.";
     return false;
@@ -186,15 +216,14 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   stdout_line_.reserve(core_count_ * 24U + 1U);
   log_line_.reserve(core_count_ * 24U + 32U);
 
-  proc_stat_fd_.reset(open("/proc/stat", O_RDONLY | O_CLOEXEC));
+  proc_stat_fd_.reset(runtime_->OpenProcStat());
   if (!proc_stat_fd_.valid()) {
     *error_message = "Unable to open /proc/stat.";
     return false;
   }
 
   if (config_.output_path.has_value()) {
-    log_fd_.reset(open(config_.output_path->c_str(),
-                       O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644));
+    log_fd_.reset(runtime_->OpenOutputFile(config_.output_path->c_str()));
     if (!log_fd_.valid()) {
       *error_message = "Unable to open output file.";
       return false;
@@ -208,7 +237,7 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
   previous_log_times_ = previous_stdout_times_;
 
   if (config_.interval_seconds.has_value()) {
-    const std::optional<timespec> now = MonotonicNow();
+    const std::optional<timespec> now = runtime_->GetMonotonicNow();
     if (!now.has_value()) {
       *error_message = "Unable to read monotonic clock.";
       return false;

@@ -35,8 +35,20 @@ class ScopedFd {
   int fd_ = -1;
 };
 
+class AppRuntime {
+ public:
+  virtual ~AppRuntime() = default;
+
+  virtual long GetOnlineCpuCount() const = 0;
+  virtual int OpenProcStat() const = 0;
+  virtual int OpenOutputFile(const char* path) const = 0;
+  virtual std::optional<timespec> GetMonotonicNow() const = 0;
+};
+
 class CpuMonitorApp {
  public:
+  CpuMonitorApp();
+  explicit CpuMonitorApp(AppRuntime& runtime);
   virtual ~CpuMonitorApp() = default;
   int Main(int argc, char* argv[]);
 
@@ -79,6 +91,7 @@ class CpuMonitorApp {
   std::size_t stdin_buffer_size_ = 0;
   bool stdin_open_ = true;
   std::optional<timespec> next_log_deadline_;
+  AppRuntime* runtime_ = nullptr;
 };
 
 #endif  // APP_H_
