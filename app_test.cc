@@ -9,12 +9,28 @@ namespace {
 
 using ::testing::_;
 using ::testing::HasSubstr;
+using ::testing::Return;
 
 class MockCpuMonitorApp : public CpuMonitorApp {
  public:
   MOCK_METHOD(bool, Initialize, (const AppConfig& config, std::string* error),
               (override));
   MOCK_METHOD(int, Run, (std::string* error), (override));
+};
+
+class MockAppRuntime : public AppRuntime {
+ public:
+  MOCK_METHOD(long, GetOnlineCpuCount, (), (const, override));
+  MOCK_METHOD(int, OpenProcStat, (), (const, override));
+  MOCK_METHOD(int, OpenOutputFile, (const char* path), (const, override));
+  MOCK_METHOD(std::optional<timespec>, GetMonotonicNow, (), (const, override));
+};
+
+class TestableCpuMonitorApp : public CpuMonitorApp {
+ public:
+  explicit TestableCpuMonitorApp(AppRuntime& runtime) : CpuMonitorApp(runtime) {}
+
+  using CpuMonitorApp::Initialize;
 };
 
 TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
@@ -139,6 +155,50 @@ TEST(CpuMonitorAppMainTest, RunFailurePropagatesExitCodeAndMessage) {
 
   EXPECT_EQ(exit_code, 1);
   EXPECT_THAT(stderr_output, HasSubstr("Run failed: run some_error"));
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenCpuCountDetectionFails) {
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(0));
+  EXPECT_CALL(runtime, OpenProcStat()).Times(0);
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_FALSE(app.Initialize(AppConfig{}, &error_message));
+  EXPECT_EQ(error_message, "Unable to detect online CPU cores.");
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatOpenFails) {
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(-1));
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_FALSE(app.Initialize(AppConfig{}, &error_message));
+  EXPECT_EQ(error_message, "Unable to open /proc/stat.");
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenOutputFileOpenFails) {
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+  AppConfig config;
+  config.output_path = "cpu.log";
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(10));
+  EXPECT_CALL(runtime, OpenOutputFile(_)).WillOnce(Return(-1));
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_FALSE(app.Initialize(config, &error_message));
+  EXPECT_EQ(error_message, "Unable to open output file.");
 }
 
 }  // namespace
