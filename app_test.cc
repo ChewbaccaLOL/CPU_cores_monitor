@@ -1,6 +1,7 @@
 #include "app.h"
 
 #include <cerrno>
+#include <cstring>
 #include <cstdio>
 #include <fcntl.h>
 #include <gmock/gmock.h>
@@ -406,6 +407,56 @@ TEST(CpuMonitorAppRunTest, ReturnsErrorWhenCalledBeforeInitialize) {
 
   EXPECT_EQ(app.Run(&error_message), 1);
   EXPECT_EQ(error_message, "Application entered Run before Init completed.");
+}
+
+TEST(CpuMonitorAppRunTest, ExitsWhenQuitCommandIsReadFromStdin) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"
+      "cpu1 20 3 4 40 5 6 7 8\n"));
+
+  const int proc_fd = proc_stat.OpenReadOnly();
+  ASSERT_GE(proc_fd, 0);
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
+  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(0));
+  EXPECT_CALL(runtime, Read(proc_fd, _, _))
+      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
+        return read(fd, buffer, count);
+      });
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  ASSERT_TRUE(app.Initialize(AppConfig{}, &error_message));
+  ASSERT_TRUE(error_message.empty());
+
+  testing::Mock::VerifyAndClearExpectations(&runtime);
+
+  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
+  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
+  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
+      .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
+        *stdin_ready = true;
+        return 1;
+      });
+  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _))
+      .WillOnce([](int, void* buffer, std::size_t) {
+        static constexpr char kQuitCommand[] = "quit\n";
+        std::memcpy(buffer, kQuitCommand, sizeof(kQuitCommand) - 1);
+        return static_cast<ssize_t>(sizeof(kQuitCommand) - 1);
+      });
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+  EXPECT_CALL(runtime, Write(_, _, _)).Times(0);
+
+  EXPECT_EQ(app.Run(&error_message), 0);
+  EXPECT_TRUE(error_message.empty());
 }
 
 }  // namespace
