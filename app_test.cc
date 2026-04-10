@@ -14,6 +14,7 @@ namespace {
 using ::testing::_;
 using ::testing::HasSubstr;
 using ::testing::Return;
+using ::testing::StrEq;
 
 class TempFile {
  public:
@@ -303,6 +304,79 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenMonotonicClockReadFails) {
 
   EXPECT_FALSE(app.Initialize(config, &error_message));
   EXPECT_EQ(error_message, "Unable to read monotonic clock.");
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatCannotBeParsed) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents("not a proc stat buffer\n"));
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_FALSE(app.Initialize(AppConfig{}, &error_message));
+  EXPECT_EQ(error_message, "Unable to parse /proc/stat.");
+}
+
+TEST(CpuMonitorAppInitializeTest, FailsWhenParsedCoreCountDoesNotMatch) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"));
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+
+  EXPECT_FALSE(app.Initialize(AppConfig{}, &error_message));
+  EXPECT_EQ(error_message, "Parsed core count does not match detected core count.");
+}
+
+TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"
+      "cpu1 20 3 4 40 5 6 7 8\n"));
+
+  TempFile output_file;
+  ASSERT_TRUE(output_file.valid());
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+  AppConfig config;
+  config.interval_seconds = 5;
+  config.output_path = std::string(output_file.path());
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, OpenOutputFile(StrEq(output_file.path())))
+      .WillOnce([&output_file](const char*) {
+        return open(output_file.path(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
+                    0644);
+      });
+  EXPECT_CALL(runtime, GetMonotonicNow())
+      .WillOnce(Return(std::optional<timespec>{timespec{10, 20}}));
+
+  EXPECT_TRUE(app.Initialize(config, &error_message));
+  EXPECT_TRUE(error_message.empty());
 }
 
 }  // namespace
