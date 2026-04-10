@@ -90,8 +90,8 @@ CommandAction ParseCommand(std::string_view line) {
   return CommandAction::kInvalid;
 }
 
-void PrintStartupHint() {
-  if (isatty(STDIN_FILENO) == 0 || isatty(STDOUT_FILENO) == 0) {
+void PrintStartupHint(const AppRuntime& runtime) {
+  if (!runtime.IsTerminal(STDIN_FILENO) || !runtime.IsTerminal(STDOUT_FILENO)) {
     return;
   }
 
@@ -120,6 +120,62 @@ class PosixAppRuntime : public AppRuntime {
     }
     return now;
   }
+
+  bool GetLocalTimeNow(tm* output) const override {
+    if (output == nullptr) {
+      return false;
+    }
+
+    const time_t now = time(nullptr);
+    return localtime_r(&now, output) != nullptr;
+  }
+
+  off_t Seek(int fd, off_t offset, int whence) const override {
+    return lseek(fd, offset, whence);
+  }
+
+  ssize_t Read(int fd, void* buffer, std::size_t count) const override {
+    return read(fd, buffer, count);
+  }
+
+  ssize_t Write(int fd, const void* buffer, std::size_t count) const override {
+    return write(fd, buffer, count);
+  }
+
+  int WaitForStdin(const std::optional<timespec>& timeout, bool stdin_open,
+                   bool* stdin_ready) const override {
+    if (stdin_ready == nullptr) {
+      return -1;
+    }
+
+    *stdin_ready = false;
+
+    fd_set read_fds;
+    FD_ZERO(&read_fds);
+
+    int nfds = 0;
+    if (stdin_open) {
+      FD_SET(STDIN_FILENO, &read_fds);
+      nfds = STDIN_FILENO + 1;
+    }
+
+    const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
+    const int wait_result =
+        pselect(nfds, stdin_open ? &read_fds : nullptr, nullptr, nullptr,
+                timeout_ptr, nullptr);
+    if (wait_result < 0) {
+      if (errno == EINTR) {
+        return 0;
+      }
+      return -1;
+    }
+
+    *stdin_ready =
+        stdin_open && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds);
+    return wait_result;
+  }
+
+  bool IsTerminal(int fd) const override { return isatty(fd) != 0; }
 };
 
 AppRuntime& DefaultAppRuntime() {
@@ -269,7 +325,7 @@ int CpuMonitorApp::Run(std::string* error_message) {
     return 1;
   }
 
-  PrintStartupHint();
+  PrintStartupHint(*runtime_);
 
   bool should_exit = false;
   while (!should_exit && !g_stop_requested) {
@@ -310,34 +366,14 @@ int CpuMonitorApp::WaitForEvents(std::string* error_message,
 
   *stdin_ready = false;
 
-  fd_set read_fds;
-  FD_ZERO(&read_fds);
-
-  int nfds = 0;
-  if (stdin_open_) {
-    FD_SET(STDIN_FILENO, &read_fds);
-    nfds = STDIN_FILENO + 1;
-  }
-
   const std::optional<timespec> timeout = NextTimeout();
-  const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
-
-  // Wait for either interactive stdin input or the next scheduled log deadline.
-  const int wait_result =
-      pselect(nfds, stdin_open_ ? &read_fds : nullptr, nullptr, nullptr,
-              timeout_ptr, nullptr);
+  const int wait_result = runtime_->WaitForStdin(timeout, stdin_open_, stdin_ready);
   if (wait_result < 0) {
-    if (errno == EINTR) {
-      return 0;
-    }
     if (error_message != nullptr) {
       *error_message = "pselect() failed.";
     }
     return -1;
   }
-
-  *stdin_ready =
-      stdin_open_ && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds);
   return wait_result;
 }
 
@@ -346,7 +382,7 @@ bool CpuMonitorApp::HandleScheduledLogging(std::string* error_message) {
     return true;
   }
 
-  const std::optional<timespec> now = MonotonicNow();
+  const std::optional<timespec> now = runtime_->GetMonotonicNow();
   if (!now.has_value()) {
     if (error_message != nullptr) {
       *error_message = "Unable to read monotonic clock.";
@@ -377,7 +413,7 @@ bool CpuMonitorApp::HandleScheduledLogging(std::string* error_message) {
 bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
                                  std::size_t destination_size,
                                  std::string* error_message) {
-  if (lseek(proc_stat_fd_.get(), 0, SEEK_SET) < 0) {
+  if (runtime_->Seek(proc_stat_fd_.get(), 0, SEEK_SET) < 0) {
     *error_message = "Unable to seek /proc/stat.";
     return false;
   }
@@ -385,8 +421,8 @@ bool CpuMonitorApp::ReadProcStat(CpuTimes* destination,
   std::size_t total_read = 0;
   while (total_read < proc_stat_buffer_.size()) {
     const ssize_t bytes_read =
-        read(proc_stat_fd_.get(), proc_stat_buffer_.data() + total_read,
-             proc_stat_buffer_.size() - total_read);
+        runtime_->Read(proc_stat_fd_.get(), proc_stat_buffer_.data() + total_read,
+                       proc_stat_buffer_.size() - total_read);
     if (bytes_read < 0) {
       if (errno == EINTR) {
         continue;
@@ -472,7 +508,7 @@ bool CpuMonitorApp::WriteAll(int fd, const char* data, std::size_t size,
                              std::string* error_message) const {
   std::size_t written = 0;
   while (written < size) {
-    const ssize_t rc = write(fd, data + written, size - written);
+    const ssize_t rc = runtime_->Write(fd, data + written, size - written);
     if (rc < 0) {
       if (errno == EINTR) {
         continue;
@@ -492,17 +528,16 @@ void CpuMonitorApp::BuildOutputLine(std::string* output,
   output->clear();
 
   if (include_timestamp) {
-    const time_t now = time(nullptr);
     struct tm now_tm {};
-    localtime_r(&now, &now_tm);
-
-    char timestamp[32];
-    const int timestamp_size = std::snprintf(
-        timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d ",
-        now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
-        now_tm.tm_hour, now_tm.tm_min, now_tm.tm_sec);
-    if (timestamp_size > 0) {
-      output->append(timestamp, static_cast<std::size_t>(timestamp_size));
+    if (runtime_->GetLocalTimeNow(&now_tm)) {
+      char timestamp[32];
+      const int timestamp_size = std::snprintf(
+          timestamp, sizeof(timestamp), "%04d-%02d-%02d %02d:%02d:%02d ",
+          now_tm.tm_year + 1900, now_tm.tm_mon + 1, now_tm.tm_mday,
+          now_tm.tm_hour, now_tm.tm_min, now_tm.tm_sec);
+      if (timestamp_size > 0) {
+        output->append(timestamp, static_cast<std::size_t>(timestamp_size));
+      }
     }
   }
 
@@ -529,9 +564,9 @@ bool CpuMonitorApp::HandleStdin(std::string* error_message, bool* should_exit) {
       return false;
     }
 
-    const ssize_t bytes_read = read(STDIN_FILENO,
-                                    stdin_buffer_.data() + stdin_buffer_size_,
-                                    stdin_buffer_.size() - stdin_buffer_size_);
+    const ssize_t bytes_read =
+        runtime_->Read(STDIN_FILENO, stdin_buffer_.data() + stdin_buffer_size_,
+                       stdin_buffer_.size() - stdin_buffer_size_);
     if (bytes_read < 0) {
       if (errno == EINTR) {
         continue;
@@ -595,7 +630,7 @@ std::optional<timespec> CpuMonitorApp::NextTimeout() const {
     return std::nullopt;
   }
 
-  const std::optional<timespec> now = MonotonicNow();
+  const std::optional<timespec> now = runtime_->GetMonotonicNow();
   if (!now.has_value()) {
     return std::nullopt;
   }
@@ -618,14 +653,6 @@ std::optional<timespec> CpuMonitorApp::NextTimeout() const {
     delta.tv_nsec = 0;
   }
   return delta;
-}
-
-std::optional<timespec> CpuMonitorApp::MonotonicNow() {
-  timespec now {};
-  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-    return std::nullopt;
-  }
-  return now;
 }
 
 std::optional<timespec> CpuMonitorApp::AddSeconds(const timespec& base,

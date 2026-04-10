@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <sys/types.h>
 #include <time.h>
 #include <vector>
 
@@ -43,6 +44,13 @@ class AppRuntime {
   virtual int OpenProcStat() const = 0;
   virtual int OpenOutputFile(const char* path) const = 0;
   virtual std::optional<timespec> GetMonotonicNow() const = 0;
+  virtual bool GetLocalTimeNow(tm* output) const = 0;
+  virtual off_t Seek(int fd, off_t offset, int whence) const = 0;
+  virtual ssize_t Read(int fd, void* buffer, std::size_t count) const = 0;
+  virtual ssize_t Write(int fd, const void* buffer, std::size_t count) const = 0;
+  virtual bool IsTerminal(int fd) const = 0;
+  virtual int WaitForStdin(const std::optional<timespec>& timeout,
+                           bool stdin_open, bool* stdin_ready) const = 0;
 };
 
 class CpuMonitorApp {
@@ -70,7 +78,6 @@ class CpuMonitorApp {
   void BuildOutputLine(std::string* output, bool include_timestamp) const;
   bool HandleStdin(std::string* error_message, bool* should_exit);
   std::optional<timespec> NextTimeout() const;
-  static std::optional<timespec> MonotonicNow();
   static std::optional<timespec> AddSeconds(const timespec& base,
                                             unsigned int seconds);
   static bool TimeReached(const timespec& now, const timespec& deadline);

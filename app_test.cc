@@ -82,7 +82,31 @@ class MockAppRuntime : public AppRuntime {
   MOCK_METHOD(int, OpenProcStat, (), (const, override));
   MOCK_METHOD(int, OpenOutputFile, (const char* path), (const, override));
   MOCK_METHOD(std::optional<timespec>, GetMonotonicNow, (), (const, override));
+  MOCK_METHOD(bool, GetLocalTimeNow, (tm * output), (const, override));
+  MOCK_METHOD(off_t, Seek, (int fd, off_t offset, int whence), (const, override));
+  MOCK_METHOD(ssize_t, Read, (int fd, void* buffer, std::size_t count),
+              (const, override));
+  MOCK_METHOD(ssize_t, Write, (int fd, const void* buffer, std::size_t count),
+              (const, override));
+  MOCK_METHOD(bool, IsTerminal, (int fd), (const, override));
+  MOCK_METHOD(int, WaitForStdin,
+              (const std::optional<timespec>& timeout, bool stdin_open,
+               bool* stdin_ready),
+              (const, override));
 };
+
+void ExpectProcStatFileAccess(MockAppRuntime& runtime, const TempFile& proc_stat) {
+  EXPECT_CALL(runtime, OpenProcStat())
+      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  EXPECT_CALL(runtime, Seek(_, 0, SEEK_SET))
+      .WillOnce([](int fd, off_t offset, int whence) {
+        return lseek(fd, offset, whence);
+      });
+  EXPECT_CALL(runtime, Read(_, _, _))
+      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
+        return read(fd, buffer, count);
+      });
+}
 
 class TestableCpuMonitorApp : public CpuMonitorApp {
  public:
@@ -272,8 +296,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithValidProcStatData) {
   std::string error_message;
 
   EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat())
-      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  ExpectProcStatFileAccess(runtime, proc_stat);
   EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
   EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
 
@@ -296,8 +319,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenMonotonicClockReadFails) {
   config.interval_seconds = 5;
 
   EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat())
-      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  ExpectProcStatFileAccess(runtime, proc_stat);
   EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
   EXPECT_CALL(runtime, GetMonotonicNow())
       .WillOnce(Return(std::optional<timespec>{}));
@@ -316,8 +338,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatCannotBeParsed) {
   std::string error_message;
 
   EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat())
-      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  ExpectProcStatFileAccess(runtime, proc_stat);
   EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
   EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
 
@@ -337,8 +358,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenParsedCoreCountDoesNotMatch) {
   std::string error_message;
 
   EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat())
-      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  ExpectProcStatFileAccess(runtime, proc_stat);
   EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
   EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
 
@@ -365,8 +385,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
   config.output_path = std::string(output_file.path());
 
   EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat())
-      .WillOnce([&proc_stat]() { return proc_stat.OpenReadOnly(); });
+  ExpectProcStatFileAccess(runtime, proc_stat);
   EXPECT_CALL(runtime, OpenOutputFile(StrEq(output_file.path())))
       .WillOnce([&output_file](const char*) {
         return open(output_file.path(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
