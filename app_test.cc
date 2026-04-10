@@ -113,6 +113,7 @@ class TestableCpuMonitorApp : public CpuMonitorApp {
   explicit TestableCpuMonitorApp(AppRuntime& runtime) : CpuMonitorApp(runtime) {}
 
   using CpuMonitorApp::Initialize;
+  using CpuMonitorApp::Run;
 };
 
 TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
@@ -396,6 +397,15 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
 
   EXPECT_TRUE(app.Initialize(config, &error_message));
   EXPECT_TRUE(error_message.empty());
+}
+
+TEST(CpuMonitorAppRunTest, ReturnsErrorWhenCalledBeforeInitialize) {
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+
+  EXPECT_EQ(app.Run(&error_message), 1);
+  EXPECT_EQ(error_message, "Application entered Run before Init completed.");
 }
 
 }  // namespace
