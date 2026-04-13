@@ -975,4 +975,75 @@ TEST(CpuMonitorAppRunTest, WritesScheduledLogWhenDeadlineIsReached) {
   EXPECT_TRUE(error_message.empty());
 }
 
+TEST(CpuMonitorAppRunTest, ReturnsErrorWhenScheduledLogClockReadFails) {
+  TempFile proc_stat;
+  ASSERT_TRUE(proc_stat.valid());
+  ASSERT_TRUE(proc_stat.WriteContents(
+      "cpu  100 0 50 400 0 0 0 0\n"
+      "cpu0 10 1 2 30 4 5 6 7\n"
+      "cpu1 20 3 4 40 5 6 7 8\n"));
+
+  TempFile output_file;
+  ASSERT_TRUE(output_file.valid());
+
+  const int proc_fd = proc_stat.OpenReadOnly();
+  ASSERT_GE(proc_fd, 0);
+
+  MockAppRuntime runtime;
+  TestableCpuMonitorApp app(runtime);
+  std::string error_message;
+  AppConfig config;
+  config.interval_seconds = 5;
+  config.output_path = std::string(output_file.path());
+  int log_fd = -1;
+
+  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
+  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
+  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET))
+      .WillOnce([](int fd, off_t offset, int whence) {
+        return lseek(fd, offset, whence);
+      });
+  EXPECT_CALL(runtime, Read(proc_fd, _, _))
+      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
+        return read(fd, buffer, count);
+      });
+  EXPECT_CALL(runtime, OpenOutputFile(StrEq(output_file.path())))
+      .WillOnce([&output_file, &log_fd](const char*) {
+        log_fd = open(output_file.path(),
+                      O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
+        return log_fd;
+      });
+  EXPECT_CALL(runtime, GetMonotonicNow())
+      .WillOnce(Return(std::optional<timespec>{timespec{10, 20}}));
+
+  ASSERT_TRUE(app.Initialize(config, &error_message));
+  ASSERT_TRUE(error_message.empty());
+  ASSERT_GE(log_fd, 0);
+
+  testing::Mock::VerifyAndClearExpectations(&runtime);
+
+  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
+  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
+  EXPECT_CALL(runtime, GetMonotonicNow())
+      .WillOnce(Return(std::optional<timespec>{timespec{14, 20}}))
+      .WillOnce(Return(std::optional<timespec>{}));
+  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
+      .WillOnce([](const std::optional<timespec>& timeout, bool,
+                   bool* stdin_ready) {
+        EXPECT_TRUE(timeout.has_value());
+        if (timeout.has_value()) {
+          EXPECT_EQ(timeout->tv_sec, 1);
+          EXPECT_EQ(timeout->tv_nsec, 0);
+        }
+        *stdin_ready = false;
+        return 0;
+      });
+  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _)).Times(0);
+  EXPECT_CALL(runtime, Read(proc_fd, _, _)).Times(0);
+  EXPECT_CALL(runtime, Write(_, _, _)).Times(0);
+
+  EXPECT_EQ(app.Run(&error_message), 1);
+  EXPECT_EQ(error_message, "Unable to read monotonic clock.");
+}
+
 }  // namespace
