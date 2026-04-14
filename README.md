@@ -52,6 +52,19 @@ Then open:
 coverage-html/index.html
 ```
 
+Current coverage snapshot:
+
+```text
+Overall coverage rate:
+  lines......: 80.0% (392 of 490 lines)
+  functions..: 70.9% (39 of 55 functions)
+
+Key source files:
+  app.cc: 273/367 lines, 27/41 functions
+  cpu_reader.cc: 69/71 lines, 6/6 functions
+  args.cc: 47/49 lines, 3/3 functions
+```
+
 ## Run
 
 Interactive mode:
