@@ -10,22 +10,23 @@ COMMON_COPTS = [
 cc_library(
     name = "cpu_monitor_lib",
     hdrs = [
-        "app.h",
-        "args.h",
-        "cpu_reader.h",
+        "src/app.h",
+        "src/args.h",
+        "src/cpu_reader.h",
     ],
     srcs = [
-        "app.cc",
-        "args.cc",
-        "cpu_reader.cc",
+        "src/app.cc",
+        "src/args.cc",
+        "src/cpu_reader.cc",
     ],
     copts = COMMON_COPTS,
+    includes = ["src"],
 )
 
 cc_binary(
     name = "cpu_monitor",
     srcs = [
-        "main.cc",
+        "src/main.cc",
     ],
     copts = COMMON_COPTS,
     deps = [":cpu_monitor_lib"],
@@ -34,7 +35,7 @@ cc_binary(
 
 cc_test(
     name = "args_test",
-    srcs = ["args_test.cc"],
+    srcs = ["tests/unit/args_test.cc"],
     copts = COMMON_COPTS,
     deps = [
         ":cpu_monitor_lib",
@@ -44,7 +45,7 @@ cc_test(
 
 cc_test(
     name = "app_test",
-    srcs = ["app_test.cc"],
+    srcs = ["tests/unit/app_test.cc"],
     copts = COMMON_COPTS,
     deps = [
         ":cpu_monitor_lib",
@@ -54,7 +55,7 @@ cc_test(
 
 cc_test(
     name = "cpu_reader_test",
-    srcs = ["cpu_reader_test.cc"],
+    srcs = ["tests/unit/cpu_reader_test.cc"],
     copts = COMMON_COPTS,
     deps = [
         ":cpu_monitor_lib",

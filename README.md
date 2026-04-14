@@ -68,9 +68,9 @@ Overall coverage rate:
   functions..: 70.9% (39 of 55 functions)
 
 Key source files:
-  app.cc: 273/367 lines, 27/41 functions
-  cpu_reader.cc: 69/71 lines, 6/6 functions
-  args.cc: 47/49 lines, 3/3 functions
+  src/app.cc: 273/367 lines, 27/41 functions
+  src/cpu_reader.cc: 69/71 lines, 6/6 functions
+  src/args.cc: 47/49 lines, 3/3 functions
 ```
 
 ## Run
