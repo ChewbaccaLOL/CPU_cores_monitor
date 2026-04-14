@@ -31,7 +31,7 @@ Run Robot Framework acceptance tests:
 ```sh
 source .venv/bin/activate
 bazel build //:cpu_monitor
-robot --outputdir robot-results tests/robot/interactive_commands.robot
+robot --outputdir robot-results tests/robot
 ```
 
 ## Coverage
