@@ -14,6 +14,7 @@ ${REPO_ROOT}        ${CURDIR}/../..
 ${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/cpu_monitor
 ${RESULTS_DIR}      ${REPO_ROOT}/robot-results
 ${CPU_SAMPLE_REGEXP}    20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] core0=[0-9]+[.][0-9][0-9]%.*$
+${STDOUT_SAMPLE_REGEXP}    core0=[0-9]+[.][0-9][0-9]%.*$
 
 
 *** Test Cases ***
@@ -65,6 +66,17 @@ Periodic Logging Reaches Each Expected Sample Count While Running
     Should Be Equal As Integers    ${result.rc}    0
     Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
 
+Interactive Prints Do Not Disturb Periodic Logging Schedule
+    ${log_file}=    Set Variable    ${RESULTS_DIR}/periodic-with-prints.log
+    Remove File    ${log_file}
+    ${result}=    Run Cpu Monitor With Interactive Prints During Logging    ${log_file}
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Be Empty    ${result.stderr}
+    Stdout Should Contain At Least Cpu Samples    ${result.stdout}    3
+    ${contents}=    Get File    ${log_file}
+    Log File Should Contain At Least Timestamped Cpu Samples    ${contents}    5
+    Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
+
 
 *** Keywords ***
 Periodic Logging Suite Setup
@@ -98,6 +110,20 @@ Start Cpu Monitor With Delayed Quit
     ...    ${quit_delay}
     ...    cwd=${REPO_ROOT}
     ...    alias=periodic-growth
+
+Run Cpu Monitor With Interactive Prints During Logging
+    [Arguments]    ${log_file}
+    ${result}=    Run Process
+    ...    bash
+    ...    -c
+    ...    ( sleep 0.35; printf 'print\n'; sleep 0.65; printf 'print\n'; sleep 0.75; printf 'print\n'; sleep 4.8; printf 'quit\n' ) | "$1" --interval-sec 1 --output "$2"
+    ...    _
+    ...    ${CPU_MONITOR}
+    ...    ${log_file}
+    ...    cwd=${REPO_ROOT}
+    ...    timeout=10 seconds
+    ...    on_timeout=kill
+    RETURN    ${result}
 
 Log File Should Contain Timestamped Cpu Sample
     [Arguments]    ${contents}
@@ -135,3 +161,12 @@ Log File Should Contain At Least Timestamped Cpu Samples In File
     Should Be True
     ...    ${sample_count} >= ${minimum_count}
     ...    Expected at least ${minimum_count} timestamped CPU samples, got ${sample_count}.
+
+Stdout Should Contain At Least Cpu Samples
+    [Arguments]    ${stdout}    ${minimum_count}
+    Should Not Be Empty    ${stdout}
+    ${matching_lines}=    Get Lines Matching Regexp    ${stdout}    ${STDOUT_SAMPLE_REGEXP}
+    ${line_count}=    Get Line Count    ${matching_lines}
+    Should Be True
+    ...    ${line_count} >= ${minimum_count}
+    ...    Expected at least ${minimum_count} stdout CPU samples, got ${line_count}.
