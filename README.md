@@ -26,6 +26,14 @@ bazel test //:cpu_reader_test
 bazel test //:app_test
 ```
 
+Run Robot Framework acceptance tests:
+
+```sh
+source .venv/bin/activate
+bazel build //:cpu_monitor
+robot --outputdir robot-results tests/robot/interactive_commands.robot
+```
+
 ## Coverage
 
 Generate an LCOV coverage report for the full test suite:
