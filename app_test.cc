@@ -117,6 +117,102 @@ class TestableCpuMonitorApp : public CpuMonitorApp {
   using CpuMonitorApp::Run;
 };
 
+class CpuMonitorAppPrintRunTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    ASSERT_TRUE(proc_stat_.valid());
+    ASSERT_TRUE(WriteBaselineProcStat());
+    proc_fd_ = proc_stat_.OpenReadOnly();
+    ASSERT_GE(proc_fd_, 0);
+  }
+
+  bool WriteBaselineProcStat() {
+    return proc_stat_.WriteContents(
+        "cpu  100 0 50 400 0 0 0 0\n"
+        "cpu0 10 1 2 30 4 5 6 7\n"
+        "cpu1 20 3 4 40 5 6 7 8\n");
+  }
+
+  bool WriteUpdatedProcStat() {
+    return proc_stat_.WriteContents(
+        "cpu  200 0 100 800 0 0 0 0\n"
+        "cpu0 20 1 12 50 4 5 6 7\n"
+        "cpu1 30 3 14 60 5 6 7 8\n");
+  }
+
+  void InitializeApp() {
+    EXPECT_CALL(runtime_, GetOnlineCpuCount()).WillOnce(Return(2));
+    EXPECT_CALL(runtime_, OpenProcStat()).WillOnce(Return(proc_fd_));
+    EXPECT_CALL(runtime_, Seek(proc_fd_, 0, SEEK_SET))
+        .WillOnce([](int fd, off_t offset, int whence) {
+          return lseek(fd, offset, whence);
+        });
+    EXPECT_CALL(runtime_, Read(proc_fd_, _, _))
+        .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
+          return read(fd, buffer, count);
+        });
+    EXPECT_CALL(runtime_, OpenOutputFile(_)).Times(0);
+    EXPECT_CALL(runtime_, GetMonotonicNow()).Times(0);
+
+    ASSERT_TRUE(app_.Initialize(AppConfig{}, &error_message_));
+    ASSERT_TRUE(error_message_.empty());
+
+    testing::Mock::VerifyAndClearExpectations(&runtime_);
+  }
+
+  void ExpectNonInteractiveStartup() {
+    EXPECT_CALL(runtime_, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
+    EXPECT_CALL(runtime_, IsTerminal(STDOUT_FILENO)).Times(0);
+  }
+
+  void ExpectStdinReady() {
+    EXPECT_CALL(runtime_, WaitForStdin(_, true, _))
+        .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
+          *stdin_ready = true;
+          return 1;
+        });
+  }
+
+  void ExpectPrintCommand() {
+    EXPECT_CALL(runtime_, Read(STDIN_FILENO, _, _))
+        .WillOnce([](int, void* buffer, std::size_t) {
+          static constexpr char kPrintCommand[] = "print\n";
+          std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
+          return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
+        });
+  }
+
+  void ExpectPrintCommandThenEof() {
+    EXPECT_CALL(runtime_, Read(STDIN_FILENO, _, _))
+        .WillOnce([](int, void* buffer, std::size_t) {
+          static constexpr char kPrintCommand[] = "print\n";
+          std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
+          return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
+        })
+        .WillOnce(Return(0));
+  }
+
+  void ExpectProcStatSeek() {
+    EXPECT_CALL(runtime_, Seek(proc_fd_, 0, SEEK_SET))
+        .WillOnce([](int fd, off_t offset, int whence) {
+          return lseek(fd, offset, whence);
+        });
+  }
+
+  void ExpectProcStatRead() {
+    EXPECT_CALL(runtime_, Read(proc_fd_, _, _))
+        .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
+          return read(fd, buffer, count);
+        });
+  }
+
+  TempFile proc_stat_;
+  int proc_fd_ = -1;
+  MockAppRuntime runtime_;
+  TestableCpuMonitorApp app_{runtime_};
+  std::string error_message_;
+};
+
 TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
   MockCpuMonitorApp app;
   char program[] = "cpu_monitor";
@@ -609,47 +705,12 @@ TEST(CpuMonitorAppRunTest, WritesErrorForInvalidCommand) {
   EXPECT_TRUE(error_message.empty());
 }
 
-TEST(CpuMonitorAppRunTest, PrintsCpuSampleForPrintCommand) {
-  TempFile proc_stat;
-  ASSERT_TRUE(proc_stat.valid());
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  100 0 50 400 0 0 0 0\n"
-      "cpu0 10 1 2 30 4 5 6 7\n"
-      "cpu1 20 3 4 40 5 6 7 8\n"));
+TEST_F(CpuMonitorAppPrintRunTest, PrintsCpuSampleForPrintCommand) {
+  InitializeApp();
+  ASSERT_TRUE(WriteUpdatedProcStat());
 
-  const int proc_fd = proc_stat.OpenReadOnly();
-  ASSERT_GE(proc_fd, 0);
-
-  MockAppRuntime runtime;
-  TestableCpuMonitorApp app(runtime);
-  std::string error_message;
-
-  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET))
-      .WillOnce([](int fd, off_t offset, int whence) {
-        return lseek(fd, offset, whence);
-      });
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
-
-  ASSERT_TRUE(app.Initialize(AppConfig{}, &error_message));
-  ASSERT_TRUE(error_message.empty());
-
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  200 0 100 800 0 0 0 0\n"
-      "cpu0 20 1 12 50 4 5 6 7\n"
-      "cpu1 30 3 14 60 5 6 7 8\n"));
-
-  testing::Mock::VerifyAndClearExpectations(&runtime);
-
-  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
-  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
-  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
+  ExpectNonInteractiveStartup();
+  EXPECT_CALL(runtime_, WaitForStdin(_, true, _))
       .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
         *stdin_ready = true;
         return 1;
@@ -658,206 +719,73 @@ TEST(CpuMonitorAppRunTest, PrintsCpuSampleForPrintCommand) {
         *stdin_ready = true;
         return 1;
       });
-  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _))
-      .WillOnce([](int, void* buffer, std::size_t) {
-        static constexpr char kPrintCommand[] = "print\n";
-        std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
-        return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
-      })
-      .WillOnce(Return(0));
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET))
-      .WillOnce([](int fd, off_t offset, int whence) {
-        return lseek(fd, offset, whence);
-      });
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, Write(STDOUT_FILENO, _, _))
+  ExpectPrintCommandThenEof();
+  ExpectProcStatSeek();
+  ExpectProcStatRead();
+  EXPECT_CALL(runtime_, Write(STDOUT_FILENO, _, _))
       .WillOnce([](int, const void* buffer, std::size_t count) {
         EXPECT_EQ(std::string(static_cast<const char*>(buffer), count),
                   "core0=50.00% core1=50.00%\n");
         return static_cast<ssize_t>(count);
       });
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+  EXPECT_CALL(runtime_, GetMonotonicNow()).Times(0);
 
-  EXPECT_EQ(app.Run(&error_message), 0);
-  EXPECT_TRUE(error_message.empty());
+  EXPECT_EQ(app_.Run(&error_message_), 0);
+  EXPECT_TRUE(error_message_.empty());
 }
 
-TEST(CpuMonitorAppRunTest, ReturnsErrorWhenPrintWriteFails) {
-  TempFile proc_stat;
-  ASSERT_TRUE(proc_stat.valid());
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  100 0 50 400 0 0 0 0\n"
-      "cpu0 10 1 2 30 4 5 6 7\n"
-      "cpu1 20 3 4 40 5 6 7 8\n"));
+TEST_F(CpuMonitorAppPrintRunTest, ReturnsErrorWhenPrintWriteFails) {
+  InitializeApp();
+  ASSERT_TRUE(WriteUpdatedProcStat());
 
-  const int proc_fd = proc_stat.OpenReadOnly();
-  ASSERT_GE(proc_fd, 0);
-
-  MockAppRuntime runtime;
-  TestableCpuMonitorApp app(runtime);
-  std::string error_message;
-
-  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(0));
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
-
-  ASSERT_TRUE(app.Initialize(AppConfig{}, &error_message));
-  ASSERT_TRUE(error_message.empty());
-
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  200 0 100 800 0 0 0 0\n"
-      "cpu0 20 1 12 50 4 5 6 7\n"
-      "cpu1 30 3 14 60 5 6 7 8\n"));
-
-  testing::Mock::VerifyAndClearExpectations(&runtime);
-
-  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
-  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
-  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
-      .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
-        *stdin_ready = true;
-        return 1;
-      });
-  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _))
-      .WillOnce([](int, void* buffer, std::size_t) {
-        static constexpr char kPrintCommand[] = "print\n";
-        std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
-        return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
-      });
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET))
-      .WillOnce([](int fd, off_t offset, int whence) {
-        return lseek(fd, offset, whence);
-      });
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, Write(STDOUT_FILENO, _, _))
+  ExpectNonInteractiveStartup();
+  ExpectStdinReady();
+  ExpectPrintCommand();
+  ExpectProcStatSeek();
+  ExpectProcStatRead();
+  EXPECT_CALL(runtime_, Write(STDOUT_FILENO, _, _))
       .WillOnce([](int, const void*, std::size_t) {
         errno = EPIPE;
         return -1;
       });
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+  EXPECT_CALL(runtime_, GetMonotonicNow()).Times(0);
 
-  EXPECT_EQ(app.Run(&error_message), 1);
-  EXPECT_EQ(error_message, "write() failed.");
+  EXPECT_EQ(app_.Run(&error_message_), 1);
+  EXPECT_EQ(error_message_, "write() failed.");
 }
 
-TEST(CpuMonitorAppRunTest, ReturnsErrorWhenPrintCannotSeekProcStat) {
-  TempFile proc_stat;
-  ASSERT_TRUE(proc_stat.valid());
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  100 0 50 400 0 0 0 0\n"
-      "cpu0 10 1 2 30 4 5 6 7\n"
-      "cpu1 20 3 4 40 5 6 7 8\n"));
+TEST_F(CpuMonitorAppPrintRunTest, ReturnsErrorWhenPrintCannotSeekProcStat) {
+  InitializeApp();
 
-  const int proc_fd = proc_stat.OpenReadOnly();
-  ASSERT_GE(proc_fd, 0);
+  ExpectNonInteractiveStartup();
+  ExpectStdinReady();
+  ExpectPrintCommand();
+  EXPECT_CALL(runtime_, Seek(proc_fd_, 0, SEEK_SET)).WillOnce(Return(-1));
+  EXPECT_CALL(runtime_, Read(proc_fd_, _, _)).Times(0);
+  EXPECT_CALL(runtime_, Write(_, _, _)).Times(0);
+  EXPECT_CALL(runtime_, GetMonotonicNow()).Times(0);
 
-  MockAppRuntime runtime;
-  TestableCpuMonitorApp app(runtime);
-  std::string error_message;
-
-  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(0));
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
-
-  ASSERT_TRUE(app.Initialize(AppConfig{}, &error_message));
-  ASSERT_TRUE(error_message.empty());
-
-  testing::Mock::VerifyAndClearExpectations(&runtime);
-
-  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
-  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
-  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
-      .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
-        *stdin_ready = true;
-        return 1;
-      });
-  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _))
-      .WillOnce([](int, void* buffer, std::size_t) {
-        static constexpr char kPrintCommand[] = "print\n";
-        std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
-        return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
-      });
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(-1));
-  EXPECT_CALL(runtime, Read(proc_fd, _, _)).Times(0);
-  EXPECT_CALL(runtime, Write(_, _, _)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
-
-  EXPECT_EQ(app.Run(&error_message), 1);
-  EXPECT_EQ(error_message, "Unable to seek /proc/stat.");
+  EXPECT_EQ(app_.Run(&error_message_), 1);
+  EXPECT_EQ(error_message_, "Unable to seek /proc/stat.");
 }
 
-TEST(CpuMonitorAppRunTest, ReturnsErrorWhenPrintCannotReadProcStat) {
-  TempFile proc_stat;
-  ASSERT_TRUE(proc_stat.valid());
-  ASSERT_TRUE(proc_stat.WriteContents(
-      "cpu  100 0 50 400 0 0 0 0\n"
-      "cpu0 10 1 2 30 4 5 6 7\n"
-      "cpu1 20 3 4 40 5 6 7 8\n"));
+TEST_F(CpuMonitorAppPrintRunTest, ReturnsErrorWhenPrintCannotReadProcStat) {
+  InitializeApp();
 
-  const int proc_fd = proc_stat.OpenReadOnly();
-  ASSERT_GE(proc_fd, 0);
-
-  MockAppRuntime runtime;
-  TestableCpuMonitorApp app(runtime);
-  std::string error_message;
-
-  EXPECT_CALL(runtime, GetOnlineCpuCount()).WillOnce(Return(2));
-  EXPECT_CALL(runtime, OpenProcStat()).WillOnce(Return(proc_fd));
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(0));
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
-      .WillRepeatedly([](int fd, void* buffer, std::size_t count) {
-        return read(fd, buffer, count);
-      });
-  EXPECT_CALL(runtime, OpenOutputFile(_)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
-
-  ASSERT_TRUE(app.Initialize(AppConfig{}, &error_message));
-  ASSERT_TRUE(error_message.empty());
-
-  testing::Mock::VerifyAndClearExpectations(&runtime);
-
-  EXPECT_CALL(runtime, IsTerminal(STDIN_FILENO)).WillOnce(Return(false));
-  EXPECT_CALL(runtime, IsTerminal(STDOUT_FILENO)).Times(0);
-  EXPECT_CALL(runtime, WaitForStdin(_, true, _))
-      .WillOnce([](const std::optional<timespec>&, bool, bool* stdin_ready) {
-        *stdin_ready = true;
-        return 1;
-      });
-  EXPECT_CALL(runtime, Read(STDIN_FILENO, _, _))
-      .WillOnce([](int, void* buffer, std::size_t) {
-        static constexpr char kPrintCommand[] = "print\n";
-        std::memcpy(buffer, kPrintCommand, sizeof(kPrintCommand) - 1);
-        return static_cast<ssize_t>(sizeof(kPrintCommand) - 1);
-      });
-  EXPECT_CALL(runtime, Seek(proc_fd, 0, SEEK_SET)).WillOnce(Return(0));
-  EXPECT_CALL(runtime, Read(proc_fd, _, _))
+  ExpectNonInteractiveStartup();
+  ExpectStdinReady();
+  ExpectPrintCommand();
+  EXPECT_CALL(runtime_, Seek(proc_fd_, 0, SEEK_SET)).WillOnce(Return(0));
+  EXPECT_CALL(runtime_, Read(proc_fd_, _, _))
       .WillOnce([](int, void*, std::size_t) {
         errno = EIO;
         return -1;
       });
-  EXPECT_CALL(runtime, Write(_, _, _)).Times(0);
-  EXPECT_CALL(runtime, GetMonotonicNow()).Times(0);
+  EXPECT_CALL(runtime_, Write(_, _, _)).Times(0);
+  EXPECT_CALL(runtime_, GetMonotonicNow()).Times(0);
 
-  EXPECT_EQ(app.Run(&error_message), 1);
-  EXPECT_EQ(error_message, "Unable to read /proc/stat.");
+  EXPECT_EQ(app_.Run(&error_message_), 1);
+  EXPECT_EQ(error_message_, "Unable to read /proc/stat.");
 }
 
 TEST(CpuMonitorAppRunTest, WritesScheduledLogWhenDeadlineIsReached) {
