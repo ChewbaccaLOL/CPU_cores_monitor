@@ -2,15 +2,18 @@
 Documentation       Acceptance tests for cpu_monitor periodic file logging.
 Library             OperatingSystem
 Library             Process
+Library             String
+Library             CpuLogAssertions.py
 
 Suite Setup         Periodic Logging Suite Setup
-Test Timeout        10 seconds
+Test Timeout        15 seconds
 
 
 *** Variables ***
 ${REPO_ROOT}        ${CURDIR}/../..
 ${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/cpu_monitor
 ${RESULTS_DIR}      ${REPO_ROOT}/robot-results
+${CPU_SAMPLE_REGEXP}    20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] core0=[0-9]+[.][0-9][0-9]%.*$
 
 
 *** Test Cases ***
@@ -36,6 +39,32 @@ Periodic Logging Appends To Existing Output File
     Should Start With    ${contents}    existing line${\n}
     Log File Should Contain Timestamped Cpu Sample    ${contents}
 
+Periodic Logging Continues Writing Multiple Samples
+    ${log_file}=    Set Variable    ${RESULTS_DIR}/periodic-multiple.log
+    Remove File    ${log_file}
+    ${result}=    Run Cpu Monitor With Delayed Quit    ${log_file}    7    10 seconds
+    Should Be Equal As Integers    ${result.rc}    0
+    Should Be Empty    ${result.stdout}
+    Should Be Empty    ${result.stderr}
+    ${contents}=    Get File    ${log_file}
+    Log File Should Contain At Least Timestamped Cpu Samples    ${contents}    5
+    Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
+
+Periodic Logging Reaches Each Expected Sample Count While Running
+    ${log_file}=    Set Variable    ${RESULTS_DIR}/periodic-growth.log
+    Remove File    ${log_file}
+    Start Cpu Monitor With Delayed Quit    ${log_file}    7
+    Sleep    300 milliseconds
+    Log File Should Have Exactly Timestamped Cpu Samples    ${log_file}    0
+    Log File Should Reach Timestamped Cpu Samples    ${log_file}    1
+    Log File Should Reach Timestamped Cpu Samples    ${log_file}    2
+    Log File Should Reach Timestamped Cpu Samples    ${log_file}    3
+    Log File Should Reach Timestamped Cpu Samples    ${log_file}    4
+    Log File Should Reach Timestamped Cpu Samples    ${log_file}    5
+    ${result}=    Wait For Process    periodic-growth    timeout=10 seconds    on_timeout=kill
+    Should Be Equal As Integers    ${result.rc}    0
+    Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
+
 
 *** Keywords ***
 Periodic Logging Suite Setup
@@ -43,22 +72,66 @@ Periodic Logging Suite Setup
     Create Directory    ${RESULTS_DIR}
 
 Run Cpu Monitor With Delayed Quit
-    [Arguments]    ${log_file}
+    [Arguments]    ${log_file}    ${quit_delay}=2    ${timeout}=5 seconds
     ${result}=    Run Process
     ...    bash
     ...    -c
-    ...    ( sleep 2; printf 'quit\n' ) | "$1" --interval-sec 1 --output "$2"
+    ...    ( sleep "$3"; printf 'quit\n' ) | "$1" --interval-sec 1 --output "$2"
     ...    _
     ...    ${CPU_MONITOR}
     ...    ${log_file}
+    ...    ${quit_delay}
     ...    cwd=${REPO_ROOT}
-    ...    timeout=5 seconds
+    ...    timeout=${timeout}
     ...    on_timeout=kill
     RETURN    ${result}
+
+Start Cpu Monitor With Delayed Quit
+    [Arguments]    ${log_file}    ${quit_delay}=7
+    Start Process
+    ...    bash
+    ...    -c
+    ...    ( sleep "$3"; printf 'quit\n' ) | "$1" --interval-sec 1 --output "$2"
+    ...    _
+    ...    ${CPU_MONITOR}
+    ...    ${log_file}
+    ...    ${quit_delay}
+    ...    cwd=${REPO_ROOT}
+    ...    alias=periodic-growth
 
 Log File Should Contain Timestamped Cpu Sample
     [Arguments]    ${contents}
     Should Not Be Empty    ${contents}
     Should Match Regexp
     ...    ${contents}
-    ...    (?m)^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] core0=[0-9]+[.][0-9][0-9]%
+    ...    (?m)^${CPU_SAMPLE_REGEXP}
+
+Log File Should Contain At Least Timestamped Cpu Samples
+    [Arguments]    ${contents}    ${minimum_count}
+    Should Not Be Empty    ${contents}
+    ${matching_lines}=    Get Lines Matching Regexp    ${contents}    ${CPU_SAMPLE_REGEXP}
+    ${line_count}=    Get Line Count    ${matching_lines}
+    Should Be True
+    ...    ${line_count} >= ${minimum_count}
+    ...    Expected at least ${minimum_count} timestamped CPU samples, got ${line_count}.
+
+Log File Should Have Exactly Timestamped Cpu Samples
+    [Arguments]    ${log_file}    ${expected_count}
+    ${sample_count}=    Count Cpu Samples In File    ${log_file}
+    Should Be Equal As Integers    ${sample_count}    ${expected_count}
+
+Log File Should Reach Timestamped Cpu Samples
+    [Arguments]    ${log_file}    ${minimum_count}
+    Wait Until Keyword Succeeds
+    ...    2 seconds
+    ...    100 milliseconds
+    ...    Log File Should Contain At Least Timestamped Cpu Samples In File
+    ...    ${log_file}
+    ...    ${minimum_count}
+
+Log File Should Contain At Least Timestamped Cpu Samples In File
+    [Arguments]    ${log_file}    ${minimum_count}
+    ${sample_count}=    Count Cpu Samples In File    ${log_file}
+    Should Be True
+    ...    ${sample_count} >= ${minimum_count}
+    ...    Expected at least ${minimum_count} timestamped CPU samples, got ${sample_count}.

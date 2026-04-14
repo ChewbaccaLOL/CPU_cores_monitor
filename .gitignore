@@ -4,3 +4,4 @@ MODULE.bazel.lock
 coverage-html/
 .venv/
 robot-results/
+__pycache__/
