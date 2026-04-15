@@ -5,17 +5,13 @@ from pathlib import Path
 
 _CPU_SAMPLE_RE = re.compile(
     r"^(?P<timestamp>20\d\d-\d\d-\d\d \d\d:\d\d:\d\d) "
-    r"core0=\d+[.]\d\d%.*$"
+    r"core0=\d+[.]\d\d%(?: core\d+=\d+[.]\d\d%)*$"
 )
 
 
-def _sample_timestamps(path):
-    log_path = Path(path)
-    if not log_path.exists():
-        return []
-
+def _sample_timestamps_from_text(text):
     timestamps = []
-    for line in log_path.read_text(encoding="utf-8").splitlines():
+    for line in text.splitlines():
         match = _CPU_SAMPLE_RE.match(line)
         if match:
             timestamps.append(
@@ -24,8 +20,52 @@ def _sample_timestamps(path):
     return timestamps
 
 
+def _sample_timestamps(path):
+    log_path = Path(path)
+    if not log_path.exists():
+        return []
+    return _sample_timestamps_from_text(log_path.read_text(encoding="utf-8"))
+
+
 def count_cpu_samples_in_file(path):
     return len(_sample_timestamps(path))
+
+
+def count_cpu_samples_in_text(text):
+    return len(_sample_timestamps_from_text(text))
+
+
+def log_text_should_contain_timestamped_cpu_sample(text):
+    count = count_cpu_samples_in_text(text)
+    if count < 1:
+        raise AssertionError("Expected at least one timestamped CPU sample.")
+
+
+def log_text_should_contain_at_least_timestamped_cpu_samples(text, minimum_count):
+    count = count_cpu_samples_in_text(text)
+    minimum_count = int(minimum_count)
+    if count < minimum_count:
+        raise AssertionError(
+            f"Expected at least {minimum_count} timestamped CPU samples, got {count}."
+        )
+
+
+def log_file_should_have_exactly_timestamped_cpu_samples(path, expected_count):
+    count = count_cpu_samples_in_file(path)
+    expected_count = int(expected_count)
+    if count != expected_count:
+        raise AssertionError(
+            f"Expected exactly {expected_count} timestamped CPU samples, got {count}."
+        )
+
+
+def log_file_should_contain_at_least_timestamped_cpu_samples(path, minimum_count):
+    count = count_cpu_samples_in_file(path)
+    minimum_count = int(minimum_count)
+    if count < minimum_count:
+        raise AssertionError(
+            f"Expected at least {minimum_count} timestamped CPU samples, got {count}."
+        )
 
 
 def cpu_sample_timestamps_should_advance_about_every_second(

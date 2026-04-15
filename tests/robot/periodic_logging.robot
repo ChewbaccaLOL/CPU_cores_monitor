@@ -13,7 +13,6 @@ Test Timeout        15 seconds
 ${REPO_ROOT}        ${CURDIR}/../..
 ${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/cpu_monitor
 ${RESULTS_DIR}      ${REPO_ROOT}/robot-results
-${CPU_SAMPLE_REGEXP}    20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9] core0=[0-9]+[.][0-9][0-9]%.*$
 ${STDOUT_SAMPLE_REGEXP}    core0=[0-9]+[.][0-9][0-9]%.*$
 
 
@@ -27,7 +26,7 @@ Periodic Logging Writes Timestamped Cpu Sample And Quit Exits
     Should Be Empty    ${result.stderr}
     File Should Exist    ${log_file}
     ${contents}=    Get File    ${log_file}
-    Log File Should Contain Timestamped Cpu Sample    ${contents}
+    Log Text Should Contain Timestamped Cpu Sample    ${contents}
 
 Periodic Logging Appends To Existing Output File
     ${log_file}=    Set Variable    ${RESULTS_DIR}/periodic-append.log
@@ -38,7 +37,7 @@ Periodic Logging Appends To Existing Output File
     Should Be Empty    ${result.stderr}
     ${contents}=    Get File    ${log_file}
     Should Start With    ${contents}    existing line${\n}
-    Log File Should Contain Timestamped Cpu Sample    ${contents}
+    Log Text Should Contain Timestamped Cpu Sample    ${contents}
 
 Periodic Logging Continues Writing Multiple Samples
     ${log_file}=    Set Variable    ${RESULTS_DIR}/periodic-multiple.log
@@ -48,7 +47,7 @@ Periodic Logging Continues Writing Multiple Samples
     Should Be Empty    ${result.stdout}
     Should Be Empty    ${result.stderr}
     ${contents}=    Get File    ${log_file}
-    Log File Should Contain At Least Timestamped Cpu Samples    ${contents}    5
+    Log Text Should Contain At Least Timestamped Cpu Samples    ${contents}    5
     Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
 
 Periodic Logging Reaches Each Expected Sample Count While Running
@@ -74,7 +73,7 @@ Interactive Prints Do Not Disturb Periodic Logging Schedule
     Should Be Empty    ${result.stderr}
     Stdout Should Contain At Least Cpu Samples    ${result.stdout}    3
     ${contents}=    Get File    ${log_file}
-    Log File Should Contain At Least Timestamped Cpu Samples    ${contents}    5
+    Log Text Should Contain At Least Timestamped Cpu Samples    ${contents}    5
     Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
 
 
@@ -125,42 +124,14 @@ Run Cpu Monitor With Interactive Prints During Logging
     ...    on_timeout=kill
     RETURN    ${result}
 
-Log File Should Contain Timestamped Cpu Sample
-    [Arguments]    ${contents}
-    Should Not Be Empty    ${contents}
-    Should Match Regexp
-    ...    ${contents}
-    ...    (?m)^${CPU_SAMPLE_REGEXP}
-
-Log File Should Contain At Least Timestamped Cpu Samples
-    [Arguments]    ${contents}    ${minimum_count}
-    Should Not Be Empty    ${contents}
-    ${matching_lines}=    Get Lines Matching Regexp    ${contents}    ${CPU_SAMPLE_REGEXP}
-    ${line_count}=    Get Line Count    ${matching_lines}
-    Should Be True
-    ...    ${line_count} >= ${minimum_count}
-    ...    Expected at least ${minimum_count} timestamped CPU samples, got ${line_count}.
-
-Log File Should Have Exactly Timestamped Cpu Samples
-    [Arguments]    ${log_file}    ${expected_count}
-    ${sample_count}=    Count Cpu Samples In File    ${log_file}
-    Should Be Equal As Integers    ${sample_count}    ${expected_count}
-
 Log File Should Reach Timestamped Cpu Samples
     [Arguments]    ${log_file}    ${minimum_count}
     Wait Until Keyword Succeeds
     ...    2 seconds
     ...    100 milliseconds
-    ...    Log File Should Contain At Least Timestamped Cpu Samples In File
+    ...    Log File Should Contain At Least Timestamped Cpu Samples
     ...    ${log_file}
     ...    ${minimum_count}
-
-Log File Should Contain At Least Timestamped Cpu Samples In File
-    [Arguments]    ${log_file}    ${minimum_count}
-    ${sample_count}=    Count Cpu Samples In File    ${log_file}
-    Should Be True
-    ...    ${sample_count} >= ${minimum_count}
-    ...    Expected at least ${minimum_count} timestamped CPU samples, got ${sample_count}.
 
 Stdout Should Contain At Least Cpu Samples
     [Arguments]    ${stdout}    ${minimum_count}
