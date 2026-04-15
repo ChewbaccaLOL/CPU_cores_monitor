@@ -2,7 +2,6 @@
 Documentation       Acceptance tests for cpu_monitor periodic file logging.
 Library             OperatingSystem
 Library             Process
-Library             String
 Library             CpuLogAssertions.py
 
 Suite Setup         Periodic Logging Suite Setup
@@ -13,7 +12,6 @@ Test Timeout        15 seconds
 ${REPO_ROOT}        ${CURDIR}/../..
 ${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/cpu_monitor
 ${RESULTS_DIR}      ${REPO_ROOT}/robot-results
-${STDOUT_SAMPLE_REGEXP}    core0=[0-9]+[.][0-9][0-9]%.*$
 
 
 *** Test Cases ***
@@ -71,7 +69,7 @@ Interactive Prints Do Not Disturb Periodic Logging Schedule
     ${result}=    Run Cpu Monitor With Interactive Prints During Logging    ${log_file}
     Should Be Equal As Integers    ${result.rc}    0
     Should Be Empty    ${result.stderr}
-    Stdout Should Contain At Least Cpu Samples    ${result.stdout}    3
+    Stdout Text Should Contain At Least Cpu Samples    ${result.stdout}    3
     ${contents}=    Get File    ${log_file}
     Log Text Should Contain At Least Timestamped Cpu Samples    ${contents}    5
     Cpu Sample Timestamps Should Advance About Every Second    ${log_file}    5
@@ -132,12 +130,3 @@ Log File Should Reach Timestamped Cpu Samples
     ...    Log File Should Contain At Least Timestamped Cpu Samples
     ...    ${log_file}
     ...    ${minimum_count}
-
-Stdout Should Contain At Least Cpu Samples
-    [Arguments]    ${stdout}    ${minimum_count}
-    Should Not Be Empty    ${stdout}
-    ${matching_lines}=    Get Lines Matching Regexp    ${stdout}    ${STDOUT_SAMPLE_REGEXP}
-    ${line_count}=    Get Line Count    ${matching_lines}
-    Should Be True
-    ...    ${line_count} >= ${minimum_count}
-    ...    Expected at least ${minimum_count} stdout CPU samples, got ${line_count}.

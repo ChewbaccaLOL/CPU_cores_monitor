@@ -3,10 +3,12 @@ from datetime import datetime
 from pathlib import Path
 
 
+_CPU_FIELDS_PATTERN = r"core0=\d+[.]\d\d%(?: core\d+=\d+[.]\d\d%)*"
 _CPU_SAMPLE_RE = re.compile(
     r"^(?P<timestamp>20\d\d-\d\d-\d\d \d\d:\d\d:\d\d) "
-    r"core0=\d+[.]\d\d%(?: core\d+=\d+[.]\d\d%)*$"
+    rf"{_CPU_FIELDS_PATTERN}$"
 )
+_STDOUT_SAMPLE_RE = re.compile(rf"^{_CPU_FIELDS_PATTERN}$")
 
 
 def _sample_timestamps_from_text(text):
@@ -27,12 +29,20 @@ def _sample_timestamps(path):
     return _sample_timestamps_from_text(log_path.read_text(encoding="utf-8"))
 
 
+def _count_stdout_samples(text):
+    return sum(1 for line in text.splitlines() if _STDOUT_SAMPLE_RE.match(line))
+
+
 def count_cpu_samples_in_file(path):
     return len(_sample_timestamps(path))
 
 
 def count_cpu_samples_in_text(text):
     return len(_sample_timestamps_from_text(text))
+
+
+def count_stdout_cpu_samples_in_text(text):
+    return _count_stdout_samples(text)
 
 
 def log_text_should_contain_timestamped_cpu_sample(text):
@@ -65,6 +75,21 @@ def log_file_should_contain_at_least_timestamped_cpu_samples(path, minimum_count
     if count < minimum_count:
         raise AssertionError(
             f"Expected at least {minimum_count} timestamped CPU samples, got {count}."
+        )
+
+
+def stdout_text_should_contain_cpu_sample(text):
+    count = count_stdout_cpu_samples_in_text(text)
+    if count < 1:
+        raise AssertionError("Expected at least one stdout CPU sample.")
+
+
+def stdout_text_should_contain_at_least_cpu_samples(text, minimum_count):
+    count = count_stdout_cpu_samples_in_text(text)
+    minimum_count = int(minimum_count)
+    if count < minimum_count:
+        raise AssertionError(
+            f"Expected at least {minimum_count} stdout CPU samples, got {count}."
         )
 
 

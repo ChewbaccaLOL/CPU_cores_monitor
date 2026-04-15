@@ -2,6 +2,7 @@
 Documentation       Acceptance tests for cpu_monitor interactive stdin commands.
 Library             Process
 Library             OperatingSystem
+Library             CpuLogAssertions.py
 
 Suite Setup         Cpu Monitor Binary Should Exist
 Test Timeout        10 seconds
@@ -49,9 +50,7 @@ Run Cpu Monitor With Input
 
 Stdout Should Contain Cpu Sample
     [Arguments]    ${stdout}
-    Should Not Be Empty    ${stdout}
-    Should Match Regexp    ${stdout}    (?m)^core0=[0-9]+[.][0-9][0-9]%
-    Should Match Regexp    ${stdout}    (?m)core[0-9]+=[0-9]+[.][0-9][0-9]%
+    Stdout Text Should Contain Cpu Sample    ${stdout}
 
 Should Not Print Cpu Sample
     [Arguments]    ${stdout}
