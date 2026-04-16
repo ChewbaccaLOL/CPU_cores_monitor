@@ -303,6 +303,12 @@ bool CpuMonitorApp::Initialize(const AppConfig& config,
       *error_message = "Unable to calculate initial log deadline.";
       return false;
     }
+
+    if (log_fd_.valid()) {
+      // Warm libc timezone state before Run so timestamping stays allocation-free.
+      tm warmup_tm {};
+      (void)runtime_->GetLocalTimeNow(&warmup_tm);
+    }
   }
 
   state_ = AppState::kRun;

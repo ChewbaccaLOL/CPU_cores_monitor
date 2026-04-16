@@ -93,6 +93,37 @@ bazel run //:cpu_monitor -- --interval-sec 5 --output cpu.log
 - Type `quit` to exit cleanly.
 - `Ctrl+C` also stops the application gracefully.
 
+## GDB allocation check
+
+Build with debug symbols:
+
+```sh
+bazel build -c dbg //:cpu_monitor
+```
+
+Prepare input that makes `Run` print one sample and then exit:
+
+```sh
+printf 'print\nquit\n' > /tmp/cpu-monitor-gdb-input
+```
+
+Run the scripted interactive-path check:
+
+```sh
+gdb -q -batch -x tools/gdb/no_malloc_in_run.gdb --args bazel-bin/cpu_monitor
+```
+
+Run the scripted periodic-logging check:
+
+```sh
+gdb -q -batch -x tools/gdb/no_malloc_in_periodic_run.gdb --args bazel-bin/cpu_monitor
+```
+
+Each script stops at `CpuMonitorApp::Initialize`, then at `CpuMonitorApp::Run`.
+Only after `Run` starts does it arm breakpoints on `malloc`, `calloc`,
+`realloc`, `aligned_alloc`, and `posix_memalign`. If any of those functions are
+called during `Run`, GDB prints a backtrace and exits with status `23`.
+
 ## Notes
 
 - The application uses POSIX APIs for runtime behavior and Linux `/proc/stat` for per-core CPU counters.

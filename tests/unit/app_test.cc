@@ -311,6 +311,7 @@ class CpuMonitorAppScheduledLogRunTest : public ::testing::Test {
         });
     EXPECT_CALL(runtime_, GetMonotonicNow())
         .WillOnce(Return(std::optional<timespec>{timespec{10, 20}}));
+    EXPECT_CALL(runtime_, GetLocalTimeNow(_)).WillOnce(Return(true));
 
     ASSERT_TRUE(app_.Initialize(config_, &error_message_));
     ASSERT_TRUE(error_message_.empty());
@@ -626,6 +627,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
       });
   EXPECT_CALL(runtime, GetMonotonicNow())
       .WillOnce(Return(std::optional<timespec>{timespec{10, 20}}));
+  EXPECT_CALL(runtime, GetLocalTimeNow(_)).WillOnce(Return(true));
 
   EXPECT_TRUE(app.Initialize(config, &error_message));
   EXPECT_TRUE(error_message.empty());
