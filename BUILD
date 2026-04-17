@@ -8,19 +8,31 @@ COMMON_COPTS = [
 ]
 
 cc_library(
-    name = "cpu_monitor_lib",
-    hdrs = [
-        "src/app.h",
-        "src/args.h",
-        "src/cpu_reader.h",
-    ],
-    srcs = [
-        "src/app.cc",
-        "src/args.cc",
-        "src/cpu_reader.cc",
-    ],
+    name = "args_lib",
+    hdrs = ["src/args.h"],
+    srcs = ["src/args.cc"],
     copts = COMMON_COPTS,
     includes = ["src"],
+)
+
+cc_library(
+    name = "cpu_reader_lib",
+    hdrs = ["src/cpu_reader.h"],
+    srcs = ["src/cpu_reader.cc"],
+    copts = COMMON_COPTS,
+    includes = ["src"],
+)
+
+cc_library(
+    name = "app_lib",
+    hdrs = ["src/app.h"],
+    srcs = ["src/app.cc"],
+    copts = COMMON_COPTS,
+    includes = ["src"],
+    deps = [
+        ":args_lib",
+        ":cpu_reader_lib",
+    ],
 )
 
 cc_binary(
@@ -29,7 +41,7 @@ cc_binary(
         "src/main.cc",
     ],
     copts = COMMON_COPTS,
-    deps = [":cpu_monitor_lib"],
+    deps = [":app_lib"],
     visibility = ["//visibility:public"],
 )
 
@@ -38,7 +50,7 @@ cc_test(
     srcs = ["tests/unit/args_test.cc"],
     copts = COMMON_COPTS,
     deps = [
-        ":cpu_monitor_lib",
+        ":args_lib",
         "@googletest//:gtest_main",
     ],
 )
@@ -48,7 +60,7 @@ cc_test(
     srcs = ["tests/unit/app_test.cc"],
     copts = COMMON_COPTS,
     deps = [
-        ":cpu_monitor_lib",
+        ":app_lib",
         "@googletest//:gtest_main",
     ],
 )
@@ -58,7 +70,7 @@ cc_test(
     srcs = ["tests/unit/cpu_reader_test.cc"],
     copts = COMMON_COPTS,
     deps = [
-        ":cpu_monitor_lib",
+        ":cpu_reader_lib",
         "@googletest//:gtest_main",
     ],
 )
