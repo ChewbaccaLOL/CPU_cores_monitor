@@ -9,7 +9,7 @@ Test Timeout        10 seconds
 
 *** Variables ***
 ${REPO_ROOT}        ${CURDIR}/../..
-${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/cpu_monitor
+${CPU_MONITOR}      ${REPO_ROOT}/bazel-bin/src/cpu_monitor
 
 
 *** Test Cases ***

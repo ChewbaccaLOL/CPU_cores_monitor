@@ -21,9 +21,9 @@ bazel test //...
 Run individual test targets:
 
 ```sh
-bazel test //:args_test
-bazel test //:cpu_reader_test
-bazel test //:app_test
+bazel test //tests/unit:args_test
+bazel test //tests/unit:cpu_reader_test
+bazel test //tests/unit:app_test
 ```
 
 Run Robot Framework acceptance tests:
@@ -110,13 +110,13 @@ printf 'print\nquit\n' > /tmp/cpu-monitor-gdb-input
 Run the scripted interactive-path check:
 
 ```sh
-gdb -q -batch -x tools/gdb/no_malloc_in_run.gdb --args bazel-bin/cpu_monitor
+gdb -q -batch -x tools/gdb/no_malloc_in_run.gdb --args bazel-bin/src/cpu_monitor
 ```
 
 Run the scripted periodic-logging check:
 
 ```sh
-gdb -q -batch -x tools/gdb/no_malloc_in_periodic_run.gdb --args bazel-bin/cpu_monitor
+gdb -q -batch -x tools/gdb/no_malloc_in_periodic_run.gdb --args bazel-bin/src/cpu_monitor
 ```
 
 Each script stops at `CpuMonitorApp::Initialize`, then at `CpuMonitorApp::Run`.
