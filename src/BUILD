@@ -10,6 +10,15 @@ COMMON_COPTS = [
 package(default_visibility = ["//visibility:private"])
 
 cc_library(
+    name = "runtime",
+    hdrs = ["runtime.h"],
+    srcs = ["runtime.cc"],
+    copts = COMMON_COPTS,
+    includes = ["."],
+    visibility = ["//tests/unit:__pkg__"],
+)
+
+cc_library(
     name = "args",
     hdrs = ["args.h"],
     srcs = ["args.cc"],
@@ -36,6 +45,7 @@ cc_library(
     deps = [
         ":args",
         ":cpu_reader",
+        ":runtime",
     ],
     visibility = ["//tests/unit:__pkg__"],
 )
@@ -44,6 +54,9 @@ cc_binary(
     name = "cpu_monitor",
     srcs = ["main.cc"],
     copts = COMMON_COPTS,
-    deps = [":app"],
+    deps = [
+        ":app",
+        ":runtime",
+    ],
     visibility = ["//visibility:public"],
 )

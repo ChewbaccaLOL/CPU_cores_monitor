@@ -1,6 +1,8 @@
 #include "app.h"
+#include "runtime.h"
 
 int main(int argc, char* argv[]) {
-  CpuMonitorApp app;
+  PosixAppRuntime runtime;
+  CpuMonitorApp app(runtime);
   return app.Main(argc, argv);
 }

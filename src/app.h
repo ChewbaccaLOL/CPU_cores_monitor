@@ -6,12 +6,12 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <sys/types.h>
 #include <time.h>
 #include <vector>
 
 #include "args.h"
 #include "cpu_reader.h"
+#include "runtime.h"
 
 enum class AppState {
   kInit,
@@ -36,26 +36,8 @@ class ScopedFd {
   int fd_ = -1;
 };
 
-class AppRuntime {
- public:
-  virtual ~AppRuntime() = default;
-
-  virtual long GetOnlineCpuCount() const = 0;
-  virtual int OpenProcStat() const = 0;
-  virtual int OpenOutputFile(const char* path) const = 0;
-  virtual std::optional<timespec> GetMonotonicNow() const = 0;
-  virtual bool GetLocalTimeNow(tm* output) const = 0;
-  virtual off_t Seek(int fd, off_t offset, int whence) const = 0;
-  virtual ssize_t Read(int fd, void* buffer, std::size_t count) const = 0;
-  virtual ssize_t Write(int fd, const void* buffer, std::size_t count) const = 0;
-  virtual bool IsTerminal(int fd) const = 0;
-  virtual int WaitForStdin(const std::optional<timespec>& timeout,
-                           bool stdin_open, bool* stdin_ready) const = 0;
-};
-
 class CpuMonitorApp {
  public:
-  CpuMonitorApp();
   explicit CpuMonitorApp(AppRuntime& runtime);
   virtual ~CpuMonitorApp() = default;
   int Main(int argc, char* argv[]);

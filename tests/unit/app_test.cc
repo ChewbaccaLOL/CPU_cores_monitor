@@ -82,6 +82,8 @@ class TempFile {
 
 class MockCpuMonitorApp : public CpuMonitorApp {
  public:
+  explicit MockCpuMonitorApp(AppRuntime& runtime) : CpuMonitorApp(runtime) {}
+
   MOCK_METHOD(bool, Initialize, (const AppConfig& config, std::string* error),
               (override));
   MOCK_METHOD(int, Run, (std::string* error), (override));
@@ -350,7 +352,8 @@ class CpuMonitorAppScheduledLogRunTest : public ::testing::Test {
 };
 
 TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char help[] = "--help";
   char* argv[] = {program, help};
@@ -367,7 +370,8 @@ TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
 }
 
 TEST(CpuMonitorAppMainTest, ParseFailurePrintsErrorAndUsageToStderr) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char invalid_flag[] = "--ummm";
   char* argv[] = {program, invalid_flag};
@@ -385,7 +389,8 @@ TEST(CpuMonitorAppMainTest, ParseFailurePrintsErrorAndUsageToStderr) {
 }
 
 TEST(CpuMonitorAppMainTest, PartialLoggingFlagsPrintErrorAndUsageToStderr) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char interval_flag[] = "--interval-sec";
   char interval_value[] = "5";
@@ -406,7 +411,8 @@ TEST(CpuMonitorAppMainTest, PartialLoggingFlagsPrintErrorAndUsageToStderr) {
 }
 
 TEST(CpuMonitorAppMainTest, ValidArgsInitializeAndRun) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char interval_flag[] = "--interval-sec";
   char interval_value[] = "5";
@@ -434,7 +440,8 @@ TEST(CpuMonitorAppMainTest, ValidArgsInitializeAndRun) {
 }
 
 TEST(CpuMonitorAppMainTest, InitializeFailureReturnsError) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char* argv[] = {program};
 
@@ -454,7 +461,8 @@ TEST(CpuMonitorAppMainTest, InitializeFailureReturnsError) {
 }
 
 TEST(CpuMonitorAppMainTest, RunFailurePropagatesExitCodeAndMessage) {
-  MockCpuMonitorApp app;
+  MockAppRuntime runtime;
+  MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char* argv[] = {program};
 

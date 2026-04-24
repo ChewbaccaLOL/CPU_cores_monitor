@@ -6,9 +6,6 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
-#include <fcntl.h>
-#include <sys/select.h>
-#include <time.h>
 #include <unistd.h>
 
 // ----- File-local helpers -------------------------------------------------
@@ -101,88 +98,6 @@ void PrintStartupHint(const AppRuntime& runtime) {
   std::fputs(kHint, stdout);
 }
 
-class PosixAppRuntime : public AppRuntime {
- public:
-  long GetOnlineCpuCount() const override {
-    return sysconf(_SC_NPROCESSORS_ONLN);
-  }
-
-  int OpenProcStat() const override { return open("/proc/stat", O_RDONLY | O_CLOEXEC); }
-
-  int OpenOutputFile(const char* path) const override {
-    return open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
-  }
-
-  std::optional<timespec> GetMonotonicNow() const override {
-    timespec now {};
-    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-      return std::nullopt;
-    }
-    return now;
-  }
-
-  bool GetLocalTimeNow(tm* output) const override {
-    if (output == nullptr) {
-      return false;
-    }
-
-    const time_t now = time(nullptr);
-    return localtime_r(&now, output) != nullptr;
-  }
-
-  off_t Seek(int fd, off_t offset, int whence) const override {
-    return lseek(fd, offset, whence);
-  }
-
-  ssize_t Read(int fd, void* buffer, std::size_t count) const override {
-    return read(fd, buffer, count);
-  }
-
-  ssize_t Write(int fd, const void* buffer, std::size_t count) const override {
-    return write(fd, buffer, count);
-  }
-
-  int WaitForStdin(const std::optional<timespec>& timeout, bool stdin_open,
-                   bool* stdin_ready) const override {
-    if (stdin_ready == nullptr) {
-      return -1;
-    }
-
-    *stdin_ready = false;
-
-    fd_set read_fds;
-    FD_ZERO(&read_fds);
-
-    int nfds = 0;
-    if (stdin_open) {
-      FD_SET(STDIN_FILENO, &read_fds);
-      nfds = STDIN_FILENO + 1;
-    }
-
-    const timespec* timeout_ptr = timeout.has_value() ? &(*timeout) : nullptr;
-    const int wait_result =
-        pselect(nfds, stdin_open ? &read_fds : nullptr, nullptr, nullptr,
-                timeout_ptr, nullptr);
-    if (wait_result < 0) {
-      if (errno == EINTR) {
-        return 0;
-      }
-      return -1;
-    }
-
-    *stdin_ready =
-        stdin_open && wait_result > 0 && FD_ISSET(STDIN_FILENO, &read_fds);
-    return wait_result;
-  }
-
-  bool IsTerminal(int fd) const override { return isatty(fd) != 0; }
-};
-
-AppRuntime& DefaultAppRuntime() {
-  static PosixAppRuntime runtime;
-  return runtime;
-}
-
 }  // namespace
 
 // ----- Scoped file-descriptor ownership -----------------------------------
@@ -216,8 +131,6 @@ void ScopedFd::reset(int fd) {
 }
 
 // ----- CpuMonitorApp lifecycle --------------------------------------------
-
-CpuMonitorApp::CpuMonitorApp() : CpuMonitorApp(DefaultAppRuntime()) {}
 
 CpuMonitorApp::CpuMonitorApp(AppRuntime& runtime) : runtime_(&runtime) {}
 
