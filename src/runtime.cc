@@ -18,6 +18,8 @@ int PosixAppRuntime::OpenOutputFile(const char* path) const {
   return open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
 }
 
+int PosixAppRuntime::Close(int fd) const { return close(fd); }
+
 std::optional<timespec> PosixAppRuntime::GetMonotonicNow() const {
   timespec now {};
   if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {

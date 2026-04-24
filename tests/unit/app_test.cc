@@ -94,6 +94,7 @@ class MockAppRuntime : public AppRuntime {
   MOCK_METHOD(long, GetOnlineCpuCount, (), (const, override));
   MOCK_METHOD(int, OpenProcStat, (), (const, override));
   MOCK_METHOD(int, OpenOutputFile, (const char* path), (const, override));
+  MOCK_METHOD(int, Close, (int fd), (const, override));
   MOCK_METHOD(std::optional<timespec>, GetMonotonicNow, (), (const, override));
   MOCK_METHOD(bool, GetLocalTimeNow, (tm * output), (const, override));
   MOCK_METHOD(off_t, Seek, (int fd, off_t offset, int whence), (const, override));
@@ -107,6 +108,8 @@ class MockAppRuntime : public AppRuntime {
                bool* stdin_ready),
               (const, override));
 };
+
+using NiceMockAppRuntime = ::testing::NiceMock<MockAppRuntime>;
 
 void ExpectProcStatFileAccess(MockAppRuntime& runtime, const TempFile& proc_stat) {
   EXPECT_CALL(runtime, OpenProcStat())
@@ -182,7 +185,7 @@ class CpuMonitorAppInitializedRunTest : public ::testing::Test {
 
   TempFile proc_stat_;
   int proc_fd_ = -1;
-  MockAppRuntime runtime_;
+  NiceMockAppRuntime runtime_;
   TestableCpuMonitorApp app_{runtime_};
   std::string error_message_;
 };
@@ -272,7 +275,7 @@ class CpuMonitorAppPrintRunTest : public ::testing::Test {
 
   TempFile proc_stat_;
   int proc_fd_ = -1;
-  MockAppRuntime runtime_;
+  NiceMockAppRuntime runtime_;
   TestableCpuMonitorApp app_{runtime_};
   std::string error_message_;
 };
@@ -345,14 +348,14 @@ class CpuMonitorAppScheduledLogRunTest : public ::testing::Test {
   TempFile output_file_;
   int proc_fd_ = -1;
   int log_fd_ = -1;
-  MockAppRuntime runtime_;
+  NiceMockAppRuntime runtime_;
   TestableCpuMonitorApp app_{runtime_};
   std::string error_message_;
   AppConfig config_;
 };
 
 TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char help[] = "--help";
@@ -370,7 +373,7 @@ TEST(CpuMonitorAppMainTest, HelpFlagPrintsUsageWithoutInitializing) {
 }
 
 TEST(CpuMonitorAppMainTest, ParseFailurePrintsErrorAndUsageToStderr) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char invalid_flag[] = "--ummm";
@@ -389,7 +392,7 @@ TEST(CpuMonitorAppMainTest, ParseFailurePrintsErrorAndUsageToStderr) {
 }
 
 TEST(CpuMonitorAppMainTest, PartialLoggingFlagsPrintErrorAndUsageToStderr) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char interval_flag[] = "--interval-sec";
@@ -411,7 +414,7 @@ TEST(CpuMonitorAppMainTest, PartialLoggingFlagsPrintErrorAndUsageToStderr) {
 }
 
 TEST(CpuMonitorAppMainTest, ValidArgsInitializeAndRun) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char interval_flag[] = "--interval-sec";
@@ -440,7 +443,7 @@ TEST(CpuMonitorAppMainTest, ValidArgsInitializeAndRun) {
 }
 
 TEST(CpuMonitorAppMainTest, InitializeFailureReturnsError) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char* argv[] = {program};
@@ -461,7 +464,7 @@ TEST(CpuMonitorAppMainTest, InitializeFailureReturnsError) {
 }
 
 TEST(CpuMonitorAppMainTest, RunFailurePropagatesExitCodeAndMessage) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   MockCpuMonitorApp app(runtime);
   char program[] = "cpu_monitor";
   char* argv[] = {program};
@@ -482,7 +485,7 @@ TEST(CpuMonitorAppMainTest, RunFailurePropagatesExitCodeAndMessage) {
 }
 
 TEST(CpuMonitorAppInitializeTest, FailsWhenCpuCountDetectionFails) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 
@@ -496,7 +499,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenCpuCountDetectionFails) {
 }
 
 TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatOpenFails) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 
@@ -510,7 +513,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatOpenFails) {
 }
 
 TEST(CpuMonitorAppInitializeTest, FailsWhenOutputFileOpenFails) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
   AppConfig config;
@@ -533,7 +536,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithValidProcStatData) {
       "cpu0 10 1 2 30 4 5 6 7\n"
       "cpu1 20 3 4 40 5 6 7 8\n"));
 
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 
@@ -554,7 +557,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenMonotonicClockReadFails) {
       "cpu0 10 1 2 30 4 5 6 7\n"
       "cpu1 20 3 4 40 5 6 7 8\n"));
 
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
   AppConfig config;
@@ -575,7 +578,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenProcStatCannotBeParsed) {
   ASSERT_TRUE(proc_stat.valid());
   ASSERT_TRUE(proc_stat.WriteContents("not a proc stat buffer\n"));
 
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 
@@ -595,7 +598,7 @@ TEST(CpuMonitorAppInitializeTest, FailsWhenParsedCoreCountDoesNotMatch) {
       "cpu  100 0 50 400 0 0 0 0\n"
       "cpu0 10 1 2 30 4 5 6 7\n"));
 
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 
@@ -619,7 +622,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
   TempFile output_file;
   ASSERT_TRUE(output_file.valid());
 
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
   AppConfig config;
@@ -642,7 +645,7 @@ TEST(CpuMonitorAppInitializeTest, SucceedsWithPeriodicLoggingConfigured) {
 }
 
 TEST(CpuMonitorAppRunTest, ReturnsErrorWhenCalledBeforeInitialize) {
-  MockAppRuntime runtime;
+  NiceMockAppRuntime runtime;
   TestableCpuMonitorApp app(runtime);
   std::string error_message;
 

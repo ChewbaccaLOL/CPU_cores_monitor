@@ -13,6 +13,7 @@ class AppRuntime {
   virtual long GetOnlineCpuCount() const = 0;
   virtual int OpenProcStat() const = 0;
   virtual int OpenOutputFile(const char* path) const = 0;
+  virtual int Close(int fd) const = 0;
   virtual std::optional<timespec> GetMonotonicNow() const = 0;
   virtual bool GetLocalTimeNow(tm* output) const = 0;
   virtual off_t Seek(int fd, off_t offset, int whence) const = 0;
@@ -28,6 +29,7 @@ class PosixAppRuntime : public AppRuntime {
   long GetOnlineCpuCount() const override;
   int OpenProcStat() const override;
   int OpenOutputFile(const char* path) const override;
+  int Close(int fd) const override;
   std::optional<timespec> GetMonotonicNow() const override;
   bool GetLocalTimeNow(tm* output) const override;
   off_t Seek(int fd, off_t offset, int whence) const override;

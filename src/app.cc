@@ -25,6 +25,8 @@ volatile sig_atomic_t g_stop_requested = 0;
 
 void SignalHandler(int) { g_stop_requested = 1; }
 
+// TODO: Extract process-level signal handling behind its own abstraction if we
+// want the OS boundary to be fully consistent beyond AppRuntime-managed I/O.
 class SignalInstaller {
  public:
   SignalInstaller() = default;
@@ -102,15 +104,17 @@ void PrintStartupHint(const AppRuntime& runtime) {
 
 // ----- Scoped file-descriptor ownership -----------------------------------
 
-ScopedFd::ScopedFd(int fd) : fd_(fd) {}
+ScopedFd::ScopedFd(AppRuntime& runtime, int fd) : runtime_(&runtime), fd_(fd) {}
 
-ScopedFd::ScopedFd(ScopedFd&& other) noexcept : fd_(other.fd_) {
+ScopedFd::ScopedFd(ScopedFd&& other) noexcept
+    : runtime_(other.runtime_), fd_(other.fd_) {
   other.fd_ = -1;
 }
 
 ScopedFd& ScopedFd::operator=(ScopedFd&& other) noexcept {
   if (this != &other) {
     reset();
+    runtime_ = other.runtime_;
     fd_ = other.fd_;
     other.fd_ = -1;
   }
@@ -125,14 +129,15 @@ bool ScopedFd::valid() const { return fd_ >= 0; }
 
 void ScopedFd::reset(int fd) {
   if (fd_ >= 0) {
-    close(fd_);
+    (void)runtime_->Close(fd_);
   }
   fd_ = fd;
 }
 
 // ----- CpuMonitorApp lifecycle --------------------------------------------
 
-CpuMonitorApp::CpuMonitorApp(AppRuntime& runtime) : runtime_(&runtime) {}
+CpuMonitorApp::CpuMonitorApp(AppRuntime& runtime)
+    : proc_stat_fd_(runtime), log_fd_(runtime), runtime_(&runtime) {}
 
 int CpuMonitorApp::Main(int argc, char* argv[]) {
   const ParseResult parse_result = ParseArguments(argc, argv);
