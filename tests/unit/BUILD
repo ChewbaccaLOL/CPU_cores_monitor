@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
 COMMON_COPTS = [
     "-std=c++17",
@@ -33,6 +33,31 @@ cc_test(
     copts = COMMON_COPTS,
     deps = [
         "//src:cpu_reader",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_library(
+    name = "close_wrap_test_support",
+    srcs = ["close_wrap_test_support.cc"],
+    hdrs = ["close_wrap_test_support.h"],
+    copts = COMMON_COPTS,
+    deps = [
+        "@googletest//:gmock",
+    ],
+    alwayslink = True,
+)
+
+cc_test(
+    name = "close_wrap_test",
+    srcs = ["close_wrap_test.cc"],
+    copts = COMMON_COPTS,
+    linkopts = [
+        "-Wl,--wrap=close",
+    ],
+    deps = [
+        ":close_wrap_test_support",
+        "//src:close_example",
         "@googletest//:gtest_main",
     ],
 )

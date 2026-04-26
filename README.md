@@ -24,7 +24,23 @@ Run individual test targets:
 bazel test //tests/unit:args_test
 bazel test //tests/unit:cpu_reader_test
 bazel test //tests/unit:app_test
+bazel test //tests/unit:close_wrap_test
 ```
+
+## Linker-Wrap Example
+
+`//tests/unit:close_wrap_test` demonstrates test-only interception of the
+external C symbol `close()` using the linker flag `-Wl,--wrap=close`.
+
+The pattern is:
+
+- production code calls `close()` normally
+- the test target links with `--wrap=close`
+- a test-only object provides `__wrap_close`
+- `__wrap_close` forwards into a GoogleMock `MOCK_METHOD`
+
+This is a linker seam, not a source-level seam. It is useful for unmodifiable
+third-party code, but it is intentionally narrow and somewhat brittle.
 
 Run Robot Framework acceptance tests:
 
