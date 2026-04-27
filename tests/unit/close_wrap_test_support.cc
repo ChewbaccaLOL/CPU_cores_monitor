@@ -1,5 +1,6 @@
 #include "tests/unit/close_wrap_test_support.h"
 
+#include <sys/syscall.h>
 #include <unistd.h>
 
 namespace {
@@ -17,12 +18,10 @@ CloseMock* SetActiveCloseMock(CloseMock* mock) {
   return previous;
 }
 
-extern "C" int __real_close(int fd);
-
 extern "C" int __wrap_close(int fd) {
   CloseMock* mock = ActiveCloseMock();
   if (mock == nullptr) {
-    return __real_close(fd);
+    return static_cast<int>(syscall(SYS_close, fd));
   }
   return mock->Close(fd);
 }

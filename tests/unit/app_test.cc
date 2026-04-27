@@ -10,6 +10,8 @@
 #include <string>
 #include <unistd.h>
 
+#include "tests/unit/close_wrap_test_support.h"
+
 namespace {
 
 using ::testing::_;
@@ -94,7 +96,6 @@ class MockAppRuntime : public AppRuntime {
   MOCK_METHOD(long, GetOnlineCpuCount, (), (const, override));
   MOCK_METHOD(int, OpenProcStat, (), (const, override));
   MOCK_METHOD(int, OpenOutputFile, (const char* path), (const, override));
-  MOCK_METHOD(int, Close, (int fd), (const, override));
   MOCK_METHOD(std::optional<timespec>, GetMonotonicNow, (), (const, override));
   MOCK_METHOD(bool, GetLocalTimeNow, (tm * output), (const, override));
   MOCK_METHOD(off_t, Seek, (int fd, off_t offset, int whence), (const, override));
@@ -110,6 +111,18 @@ class MockAppRuntime : public AppRuntime {
 };
 
 using NiceMockAppRuntime = ::testing::NiceMock<MockAppRuntime>;
+
+class ScopedCloseMock {
+ public:
+  explicit ScopedCloseMock(CloseMock* mock)
+      : previous_(SetActiveCloseMock(mock)) {}
+  ScopedCloseMock(const ScopedCloseMock&) = delete;
+  ScopedCloseMock& operator=(const ScopedCloseMock&) = delete;
+  ~ScopedCloseMock() { SetActiveCloseMock(previous_); }
+
+ private:
+  CloseMock* previous_;
+};
 
 void ExpectProcStatFileAccess(MockAppRuntime& runtime, const TempFile& proc_stat) {
   EXPECT_CALL(runtime, OpenProcStat())
@@ -482,6 +495,16 @@ TEST(CpuMonitorAppMainTest, RunFailurePropagatesExitCodeAndMessage) {
 
   EXPECT_EQ(exit_code, 1);
   EXPECT_THAT(stderr_output, HasSubstr("Run failed: run some_error"));
+}
+
+TEST(ScopedFdCloseWrapTest, ResetRoutesCleanupThroughWrappedClose) {
+  CloseMock mock;
+  ScopedCloseMock scoped_mock(&mock);
+
+  EXPECT_CALL(mock, Close(123)).WillOnce(Return(0));
+
+  ScopedFd fd(123);
+  fd.reset();
 }
 
 TEST(CpuMonitorAppInitializeTest, FailsWhenCpuCountDetectionFails) {

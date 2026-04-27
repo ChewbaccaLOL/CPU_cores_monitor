@@ -28,15 +28,6 @@ cc_library(
 )
 
 cc_library(
-    name = "close_example",
-    hdrs = ["close_example.h"],
-    srcs = ["close_example.cc"],
-    copts = COMMON_COPTS,
-    includes = ["."],
-    visibility = ["//tests/unit:__pkg__"],
-)
-
-cc_library(
     name = "cpu_reader",
     hdrs = ["cpu_reader.h"],
     srcs = ["cpu_reader.cc"],

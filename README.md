@@ -24,17 +24,16 @@ Run individual test targets:
 bazel test //tests/unit:args_test
 bazel test //tests/unit:cpu_reader_test
 bazel test //tests/unit:app_test
-bazel test //tests/unit:close_wrap_test
 ```
 
 ## Linker-Wrap Example
 
-`//tests/unit:close_wrap_test` demonstrates test-only interception of the
-external C symbol `close()` using the linker flag `-Wl,--wrap=close`.
+`//tests/unit:app_test` demonstrates test-only interception of the external C
+symbol `close()` using the linker flag `-Wl,--wrap=close`.
 
 The pattern is:
 
-- production code calls `close()` normally
+- app production code calls `close()` normally from `ScopedFd`
 - the test target links with `--wrap=close`
 - a test-only object provides `__wrap_close`
 - `__wrap_close` forwards into a GoogleMock `MOCK_METHOD`

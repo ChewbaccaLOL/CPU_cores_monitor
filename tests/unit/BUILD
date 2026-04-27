@@ -21,8 +21,13 @@ cc_test(
     name = "app_test",
     srcs = ["app_test.cc"],
     copts = COMMON_COPTS,
+    linkstatic = True,
+    linkopts = [
+        "-Wl,--wrap=close",
+    ],
     deps = [
         "//src:app",
+        ":close_wrap_test_support",
         "@googletest//:gtest_main",
     ],
 )
@@ -43,21 +48,7 @@ cc_library(
     hdrs = ["close_wrap_test_support.h"],
     copts = COMMON_COPTS,
     deps = [
-        "@googletest//:gmock",
+        "@googletest//:gtest",
     ],
     alwayslink = True,
-)
-
-cc_test(
-    name = "close_wrap_test",
-    srcs = ["close_wrap_test.cc"],
-    copts = COMMON_COPTS,
-    linkopts = [
-        "-Wl,--wrap=close",
-    ],
-    deps = [
-        ":close_wrap_test_support",
-        "//src:close_example",
-        "@googletest//:gtest_main",
-    ],
 )

@@ -104,17 +104,15 @@ void PrintStartupHint(const AppRuntime& runtime) {
 
 // ----- Scoped file-descriptor ownership -----------------------------------
 
-ScopedFd::ScopedFd(AppRuntime& runtime, int fd) : runtime_(&runtime), fd_(fd) {}
+ScopedFd::ScopedFd(int fd) : fd_(fd) {}
 
-ScopedFd::ScopedFd(ScopedFd&& other) noexcept
-    : runtime_(other.runtime_), fd_(other.fd_) {
+ScopedFd::ScopedFd(ScopedFd&& other) noexcept : fd_(other.fd_) {
   other.fd_ = -1;
 }
 
 ScopedFd& ScopedFd::operator=(ScopedFd&& other) noexcept {
   if (this != &other) {
     reset();
-    runtime_ = other.runtime_;
     fd_ = other.fd_;
     other.fd_ = -1;
   }
@@ -129,7 +127,7 @@ bool ScopedFd::valid() const { return fd_ >= 0; }
 
 void ScopedFd::reset(int fd) {
   if (fd_ >= 0) {
-    (void)runtime_->Close(fd_);
+    (void)close(fd_);
   }
   fd_ = fd;
 }
@@ -137,7 +135,7 @@ void ScopedFd::reset(int fd) {
 // ----- CpuMonitorApp lifecycle --------------------------------------------
 
 CpuMonitorApp::CpuMonitorApp(AppRuntime& runtime)
-    : proc_stat_fd_(runtime), log_fd_(runtime), runtime_(&runtime) {}
+    : runtime_(&runtime) {}
 
 int CpuMonitorApp::Main(int argc, char* argv[]) {
   const ParseResult parse_result = ParseArguments(argc, argv);

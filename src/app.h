@@ -20,7 +20,7 @@ enum class AppState {
 
 class ScopedFd {
  public:
-  explicit ScopedFd(AppRuntime& runtime, int fd = -1);
+  explicit ScopedFd(int fd = -1);
   ScopedFd(const ScopedFd&) = delete;
   ScopedFd& operator=(const ScopedFd&) = delete;
   ScopedFd(ScopedFd&& other) noexcept;
@@ -32,7 +32,6 @@ class ScopedFd {
   void reset(int fd = -1);
 
  private:
-  AppRuntime* runtime_ = nullptr;
   int fd_ = -1;
 };
 
